@@ -1,0 +1,39 @@
+formatVersion: "0.1"
+id: PROD-001
+type: product
+title: Product Modeler
+status: confirmed
+
+frame:
+  audience:
+    - People defining a new software product from prose
+    - People recovering and refining product intent from an existing prototype
+  problem: >-
+    Software-product intent is often trapped in incomplete prose, implementation
+    details, and unstated assumptions, making deliberate rebuilding difficult.
+  outcome: >-
+    A readable, evidence-backed, implementation-independent Product Model that
+    can guide humans and external coding agents.
+  initialPlatformScope:
+    - web-applications
+
+coreCapability: CAP-001
+
+principles:
+  - intent-before-implementation
+  - provisional-before-blocked
+  - questions-by-leverage
+  - files-are-authoritative
+  - readable-without-special-tooling
+  - appearance-is-optional-and-granular
+
+exclusions:
+  - prototype-generation
+  - collaboration
+  - estimation
+  - scheduling
+  - task-management
+  - delivery-tracking
+
+sources:
+  - SRC-001
