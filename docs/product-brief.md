@@ -24,7 +24,10 @@ The first version:
 - accepts prose specifications and local web-application source repositories;
 - analyzes static source evidence;
 - may optionally run a web prototype for richer behavioral and appearance evidence;
-- constructs a provisional model immediately;
+- records source behavior as Observations rather than treating it as intended behavior;
+- groups related Observations into selectable Candidate Behaviors;
+- lets the user initialize the intended model from all candidates, no candidates, or an individually reviewed selection;
+- constructs a provisional model immediately when the prototype-as-starting-point strategy is selected;
 - displays capabilities as a primary hierarchy with cross-tree dependencies;
 - asks prioritized clarification questions through adjacent chat;
 - records observations, inferences, confirmations, proposals, and contradictions;
@@ -46,7 +49,7 @@ The product does not:
 ## Principles
 
 1. **Intent before implementation.** Existing code is evidence, not automatically the specification.
-2. **Provisional before blocked.** Produce a useful draft before asking exhaustive questions.
+2. **Provisional before blocked.** When selected as the import strategy, produce a useful draft before asking exhaustive questions.
 3. **Questions by leverage.** Ask first about uncertainties with the greatest downstream effect.
 4. **Files are authoritative.** Databases and indexes may accelerate the UI but do not replace the model files.
 5. **Readable without special tooling.** A human or coding agent should understand the model by reading it.
@@ -59,7 +62,7 @@ The product does not:
 Given a small web application or prose specification, a user can:
 
 1. obtain a plausible product frame and capability hierarchy;
-2. inspect evidence and epistemic status for important claims;
+2. inspect evidence certainty and review state for important claims;
 3. answer one high-impact clarification question;
 4. see the model and its files update coherently; and
 5. hand the resulting directory to an external coding agent without extensive explanation.

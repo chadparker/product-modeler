@@ -17,6 +17,9 @@ The system constructs a useful provisional Product Model from incomplete Product
 
 ## Includes
 
+- record source behavior as Observations;
+- group related Observations into Candidate Behaviors;
+- initialize target dispositions according to the selected import strategy;
 - infer the Product Frame;
 - identify the Core Capability and Supporting Capabilities;
 - reconstruct Journeys;

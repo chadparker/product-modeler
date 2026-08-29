@@ -54,11 +54,31 @@ A statement in the Product Model about the product.
 
 ## Provenance
 
-The recorded origin and epistemic status of a Claim.
+The recorded origin, evidence relationship, and review information associated with a Claim.
 
 ## Observation
 
-A Claim directly supported by Product Evidence.
+A structured conclusion about what a Source Prototype appears to do. An Observation remains separate from intended product behavior and carries an Evidence Certainty.
+
+## Evidence Certainty
+
+How strongly Product Evidence supports an Observation: direct, inferred, contradicted, or unknown.
+
+## Candidate Behavior
+
+A product-level behavior synthesized from one or more Observations and offered for inclusion in the intended Product Model.
+
+## Target Disposition
+
+The user's intended treatment of a Candidate Behavior: preserve, modify, exclude, or undecided.
+
+## Import Strategy
+
+The policy used to initialize Candidate Behavior dispositions: use the prototype as a starting point, start with an empty target, or review candidates individually.
+
+## Review State
+
+Whether an intended Product Model entity is provisional, confirmed, questioned, or proposed.
 
 ## Inference
 

@@ -7,16 +7,18 @@ A user supplies a small React web-application repository. It contains routes, co
 ## Desired flow
 
 1. The user creates an analysis project and selects the repository.
-2. Product Modeler inventories the source evidence.
-3. The AI produces a provisional Product Frame and capability hierarchy without waiting for exhaustive clarification.
-4. The workspace displays the capability map beside a conversation panel.
-5. The user selects a Capability and sees its definition, dependencies, evidence, and epistemic status.
-6. The AI asks the highest-impact Clarification Question.
-7. The user answers in chat.
-8. The AI emits explicit structured mutations to the Product Model.
-9. Changed nodes and relationships are highlighted in the map.
-10. The corresponding text files are updated and remain readable outside the application.
-11. The user reviews unresolved Inferences and exports or commits the Product Model for use by an external coding agent.
+2. Product Modeler inventories the source evidence and records Observations.
+3. The AI groups related Observations into Candidate Behaviors.
+4. The user chooses prototype-as-starting-point, empty-target, or review-individually import behavior.
+5. The AI constructs the corresponding provisional Product Frame and capability hierarchy.
+6. The workspace displays the capability map beside a conversation panel.
+7. The user selects a Capability and sees its definition, dependencies, evidence certainty, and review state.
+8. The AI asks the highest-impact Clarification Question.
+9. The user answers in chat.
+10. The AI emits explicit structured mutations to the Product Model.
+11. Changed nodes and relationships are highlighted in the map.
+12. The corresponding text files are updated and remain readable outside the application.
+13. The user reviews unresolved Inferences and exports or commits the Product Model for use by an external coding agent.
 
 ## Minimum generated model
 

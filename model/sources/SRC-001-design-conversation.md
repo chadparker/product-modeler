@@ -21,6 +21,9 @@ The founding discussion established the following confirmed direction:
 - external coding agents consume the resulting model;
 - authoritative data should be file-based and text-readable;
 - implementation evidence is distinct from intended product behavior;
+- source analysis produces Observations grouped into selectable Candidate Behaviors;
+- prototype imports may start from all candidates, no candidates, or individual review;
+- selecting a candidate determines target intent rather than evidence certainty;
 - appearance preservation is optional and granular.
 
 The original conversation remains the human source for nuances not yet represented in model version `0.1`.

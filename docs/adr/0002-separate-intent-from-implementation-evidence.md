@@ -11,7 +11,7 @@ An existing prototype contains valuable evidence about behavior and appearance, 
 
 The Product Model primarily describes intended, user-observable product behavior independently of implementation.
 
-Source code, tests, schemas, assets, and runtime observations are Product Evidence. Claims derived from them carry Provenance and an epistemic status such as observed, inferred, confirmed, proposed, contradicted, or unknown.
+Source code, tests, schemas, assets, and runtime observations are Product Evidence. Claims derived from them carry Provenance. Source Observations carry Evidence Certainty, while intended product entities carry a separate Review State.
 
 An implementation detail becomes a Constraint only when explicitly confirmed as something a future implementation must preserve.
 
