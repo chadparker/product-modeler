@@ -15,10 +15,12 @@ relations:
 
 The user and AI refine the provisional Product Model through an adjacent conversation.
 
-The system identifies ambiguity, prioritizes questions by expected downstream impact, and translates answers into explicit structured model mutations.
+The system identifies ambiguity, prioritizes questions by expected downstream impact, and translates answers into atomic, validated Mutation Transactions.
 
 ## Important behavior
 
 - Questions do not block the first provisional model.
-- Changes caused by an answer are visible and reviewable.
+- Fast, Review Everything, and Balanced Mutation Modes are available per project.
+- Balanced is the default and protects confirmed or foundational intent.
+- Every applied transaction is summarized and supports Undo.
 - Rejected Inferences remain traceable without cluttering the active model.

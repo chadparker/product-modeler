@@ -102,6 +102,28 @@ The current dogfood files still use a simplified entity-level `status` field:
 
 This field is transitional. Evidence Certainty, Target Disposition, and Review State must not be collapsed into one status in the durable schema.
 
+## Mutation transactions
+
+Every AI-generated model change is expressed as an atomic, validated Mutation Transaction. A transaction identifies:
+
+- the triggering chat message, analysis event, or user action;
+- the active Mutation Mode;
+- its rationale;
+- structured operations;
+- affected entity IDs;
+- before-and-after values;
+- whether it was applied, staged, rejected, or undone.
+
+Projects support:
+
+- `fast` — immediately apply all valid AI-generated transactions;
+- `review-everything` — stage all AI-generated transactions;
+- `balanced` — immediately apply provisional and explicit structured user changes, but stage changes to confirmed or foundational intent.
+
+Balanced is the default. Protected categories are deterministic and visible. Applied transactions support atomic Undo; failed validation writes nothing.
+
+The durable file representation and retention policy for transaction history is not yet defined.
+
 ## Core relationships
 
 - `supports`
@@ -135,7 +157,7 @@ A model may embed or reference established formats where appropriate, including 
 
 - claim-level versus entity-level provenance;
 - exact representation of candidate-to-target modifications;
-- mutation and review protocol;
+- durable mutation-history representation and retention;
 - deletion and rejection history;
 - schema migration;
 - relationship metadata;

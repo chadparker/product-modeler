@@ -2,7 +2,8 @@
 id: Q-001
 type: question
 title: Must AI mutations be accepted before writing files?
-status: unknown
+status: resolved
+resolvedBy: DEC-002
 impact: high
 related:
   - CAP-030
@@ -11,10 +12,10 @@ related:
 
 # Must AI mutations be accepted before writing files?
 
-Possible policies:
+## Resolution
 
-1. Apply every mutation immediately and rely on Git/history for reversal.
-2. Require explicit acceptance for every mutation.
-3. Apply low-risk changes immediately while staging consequential changes.
+Every AI-generated change is an atomic, validated Mutation Transaction. Projects support Fast, Review Everything, and Balanced Mutation Modes. Balanced is the default: provisional and explicit structured user changes apply immediately, while AI-generated changes to confirmed or foundational intent require approval.
 
-This affects interaction speed, trust, review UI, and the mutation protocol.
+All applied transactions produce a visible summary and support Undo.
+
+See [`../decisions/DEC-002-configurable-atomic-mutations.md`](../decisions/DEC-002-configurable-atomic-mutations.md).

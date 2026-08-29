@@ -30,6 +30,8 @@ The first version:
 - constructs a provisional model immediately when the prototype-as-starting-point strategy is selected;
 - displays capabilities as a primary hierarchy with cross-tree dependencies;
 - asks prioritized clarification questions through adjacent chat;
+- expresses AI changes as atomic, validated Mutation Transactions;
+- defaults to Balanced mutation handling while offering Fast and Review Everything modes;
 - records observations, inferences, confirmations, proposals, and contradictions;
 - stores the authoritative model as text files suitable for Git;
 - records optional appearance references with granular preservation policies.
@@ -55,7 +57,8 @@ The product does not:
 5. **Readable without special tooling.** A human or coding agent should understand the model by reading it.
 6. **Stable identity, flexible organization.** Entities retain IDs when renamed or moved.
 7. **Appearance is optional and granular.** Preserve it exactly only where the user intends.
-8. **Changes are explicit.** AI analysis proposes structured, reviewable mutations rather than silently rewriting intent.
+8. **Changes are explicit and atomic.** AI analysis emits structured, validated transactions with visible effects and Undo rather than silently rewriting intent.
+9. **Confirmed intent is protected.** Balanced mode stages AI-generated changes to confirmed or foundational behavior while allowing provisional exploration to remain fluid.
 
 ## Success criteria for the first usable slice
 

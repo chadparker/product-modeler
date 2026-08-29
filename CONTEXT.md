@@ -92,6 +92,26 @@ A Claim explicitly accepted by the user as intended product behavior.
 
 A suggested product change that is not part of the currently confirmed Product Model.
 
+## Mutation Transaction
+
+An atomic, validated set of structured operations that changes the Product Model and records its trigger, rationale, affected entities, and before-and-after values.
+
+## Mutation Mode
+
+The project-level policy controlling when AI-generated Mutation Transactions are applied: Fast, Review Everything, or Balanced.
+
+## Fast Mode
+
+A Mutation Mode that applies valid AI-generated transactions immediately and relies on visible change summaries and Undo.
+
+## Review Everything Mode
+
+A Mutation Mode that stages every AI-generated transaction for explicit acceptance.
+
+## Balanced Mode
+
+The default Mutation Mode. It applies changes to provisional material and explicit structured user actions immediately, while requiring approval before AI-generated changes alter confirmed or foundational intent.
+
 ## Clarification Question
 
 An unresolved question whose answer may change the Product Model.

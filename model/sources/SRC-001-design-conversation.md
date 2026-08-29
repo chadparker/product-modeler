@@ -24,6 +24,8 @@ The founding discussion established the following confirmed direction:
 - source analysis produces Observations grouped into selectable Candidate Behaviors;
 - prototype imports may start from all candidates, no candidates, or individual review;
 - selecting a candidate determines target intent rather than evidence certainty;
+- AI changes use atomic Mutation Transactions with Fast, Review Everything, and Balanced modes;
+- Balanced is the default and protects confirmed or foundational intent;
 - appearance preservation is optional and granular.
 
 The original conversation remains the human source for nuances not yet represented in model version `0.1`.
