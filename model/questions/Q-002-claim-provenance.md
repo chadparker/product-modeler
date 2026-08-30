@@ -2,7 +2,8 @@
 id: Q-002
 type: question
 title: Should provenance attach to entities or individual claims?
-status: unknown
+status: resolved
+resolvedBy: DEC-003
 impact: high
 related:
   - SUB-030
@@ -11,6 +12,10 @@ related:
 
 # Should provenance attach to entities or individual claims?
 
-Entity-level provenance is simpler but becomes misleading when one document mixes observed, inferred, and confirmed statements. Claim-level provenance is more precise but may make authoring and reading cumbersome.
+## Resolution
 
-The version `0.1` files temporarily use entity-level status and provenance while treating claim-level representation as unresolved.
+Entities provide Provenance Defaults inherited by their contained Claims. Consequential Claims and relationships receive stable local IDs and override defaults only where necessary. Ordinary explanatory prose remains unannotated.
+
+A Claim is addressed using its entity ID and local ID, such as `CAP-030#C3`.
+
+See [`../decisions/DEC-003-inherited-claim-provenance.md`](../decisions/DEC-003-inherited-claim-provenance.md).

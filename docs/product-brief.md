@@ -33,6 +33,7 @@ The first version:
 - expresses AI changes as atomic, validated Mutation Transactions;
 - defaults to Balanced mutation handling while offering Fast and Review Everything modes;
 - records observations, inferences, confirmations, proposals, and contradictions;
+- attaches inherited provenance defaults to entities and precise metadata to consequential Claims;
 - stores the authoritative model as text files suitable for Git;
 - records optional appearance references with granular preservation policies.
 
@@ -59,6 +60,7 @@ The product does not:
 7. **Appearance is optional and granular.** Preserve it exactly only where the user intends.
 8. **Changes are explicit and atomic.** AI analysis emits structured, validated transactions with visible effects and Undo rather than silently rewriting intent.
 9. **Confirmed intent is protected.** Balanced mode stages AI-generated changes to confirmed or foundational behavior while allowing provisional exploration to remain fluid.
+10. **Provenance follows the decision boundary.** Entities provide defaults, while independently reviewable Claims receive precise evidence and review metadata.
 
 ## Success criteria for the first usable slice
 

@@ -18,6 +18,7 @@ The user obtains an authoritative, Git-friendly directory that remains understan
 
 - Entities retain stable IDs across renames and moves.
 - Primary hierarchy and cross-tree dependencies are explicit.
-- The format records provenance and uncertainty.
+- The format records provenance and uncertainty through inherited entity defaults and stable local Claim IDs.
+- The UI and external agents can address Claims as `ENTITY-ID#LOCAL-ID`.
 - Derived databases and graph indexes are rebuildable caches.
 - The model can be validated for structural consistency.

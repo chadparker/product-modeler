@@ -102,6 +102,37 @@ The current dogfood files still use a simplified entity-level `status` field:
 
 This field is transitional. Evidence Certainty, Target Disposition, and Review State must not be collapsed into one status in the durable schema.
 
+## Inherited claim-level provenance
+
+Entities provide Provenance Defaults. Consequential Claims receive stable local IDs and override defaults only when their evidence or review metadata differs.
+
+```yaml
+id: CAP-030
+type: capability
+title: Search collected sources
+
+defaults:
+  review: provisional
+  basedOn:
+    - OBS-020
+
+claims:
+  - id: C1
+    statement: Users can search source titles.
+
+  - id: C2
+    statement: Users can search annotation text.
+    review: confirmed
+    basedOn:
+      - SRC-003
+```
+
+The globally stable address for the second Claim is `CAP-030#C2`. Consequential relationships may similarly use local IDs such as `R1`, addressed as `CAP-030#R1`.
+
+A statement should receive a Claim ID when it can be reviewed, contradicted, changed, sourced, implemented, or depended upon separately. Ordinary explanatory prose does not require Claim metadata.
+
+The exact convention connecting frontmatter Claims to Markdown body text remains experimental.
+
 ## Mutation transactions
 
 Every AI-generated model change is expressed as an atomic, validated Mutation Transaction. A transaction identifies:
@@ -148,6 +179,8 @@ The durable file representation and retention policy for transaction history is 
 8. Filenames are descriptive conveniences.
 9. Relative links should be used when a human-readable link is helpful; IDs remain authoritative for relationships.
 10. Derived indexes must be safely rebuildable from model files.
+11. Entity Provenance Defaults are inherited by Claims unless explicitly overridden.
+12. Consequential Claims and relationships use stable local IDs addressable through their containing entity.
 
 ## Specialized artifacts
 
@@ -155,8 +188,8 @@ A model may embed or reference established formats where appropriate, including 
 
 ## Known unresolved issues
 
-- claim-level versus entity-level provenance;
 - exact representation of candidate-to-target modifications;
+- concrete Markdown/YAML syntax for Claims without duplicated text;
 - durable mutation-history representation and retention;
 - deletion and rejection history;
 - schema migration;

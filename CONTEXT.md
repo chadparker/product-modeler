@@ -50,7 +50,15 @@ A confirmed limitation or requirement that restricts acceptable implementations 
 
 ## Claim
 
-A statement in the Product Model about the product.
+An independently reviewable statement about the product that can be confirmed, rejected, contradicted, changed, sourced, or depended upon separately from other statements in its containing entity. Consequential Claims receive stable local IDs.
+
+## Claim Address
+
+A stable reference formed from an entity ID and a local Claim ID, such as `CAP-030#C3`.
+
+## Provenance Defaults
+
+Entity-level evidence and review metadata inherited by contained Claims unless a Claim explicitly overrides them.
 
 ## Provenance
 
