@@ -1,0 +1,24 @@
+entity: CAP-030
+
+defaults:
+  review: confirmed
+  basedOn:
+    - SRC-001
+
+claims:
+  C1: {}
+  C2: {}
+  C3:
+    basedOn:
+      - DEC-002
+  C4:
+    basedOn:
+      - DEC-002
+
+relationships:
+  R1:
+    type: requires
+    target: SUB-020
+  R2:
+    type: requires
+    target: SUB-040

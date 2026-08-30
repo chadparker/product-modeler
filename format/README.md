@@ -131,7 +131,7 @@ The globally stable address for the second Claim is `CAP-030#C2`. Consequential 
 
 A statement should receive a Claim ID when it can be reviewed, contradicted, changed, sourced, implemented, or depended upon separately. Ordinary explanatory prose does not require Claim metadata.
 
-The exact convention connecting frontmatter Claims to Markdown body text remains experimental.
+The exact convention connecting frontmatter Claims to Markdown body text remains experimental. Candidate syntaxes and independent evaluation findings are recorded in [`experiments/claim-syntax/`](experiments/claim-syntax/).
 
 ## Mutation transactions
 
@@ -190,6 +190,7 @@ A model may embed or reference established formats where appropriate, including 
 
 - exact representation of candidate-to-target modifications;
 - concrete Markdown/YAML syntax for Claims without duplicated text;
+- stale-confirmation detection when reviewed Claim content changes;
 - durable mutation-history representation and retention;
 - deletion and rejection history;
 - schema migration;
