@@ -2,7 +2,7 @@
 
 ## Starting point
 
-A user supplies a small React web-application repository. It contains routes, components, tests, styles, and local persistence, but no trustworthy product specification.
+A user supplies a small web-application repository. It contains routes, components, tests, styles, and local persistence, but no trustworthy product specification.
 
 ## Desired flow
 
