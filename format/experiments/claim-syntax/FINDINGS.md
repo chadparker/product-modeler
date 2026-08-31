@@ -55,6 +55,14 @@ All variants allow this failure:
 
 A possible defense is to store a digest of the normalized Claim content when confirmation occurs. If the content later differs, validation marks the review stale until reconfirmed. This affects whether review state can safely be inherited at entity level and should be decided before finalizing Claim syntax.
 
+## Second blind review
+
+A counterbalanced blind comparison of Variant A+ and Variant D used four independent one-shot reviewers. The forced-choice result was **2–2**: two preferred A+ for structural guarantees and parser simplicity, while two preferred D for document readability, multiline Claims, and Git review ergonomics.
+
+The prompt, order mapping, summary, and complete raw responses are preserved in [`reviews/second-blind/`](reviews/second-blind/).
+
+The review also exposed correctable defects in the evaluated D sample: missing format version, title duplication, inconsistent provenance nesting, and an underspecified Claim-content boundary. The next useful experiment is a corrected D+ plus a small reference parser.
+
 ## Current recommendation
 
-Continue with Variant D as the leading candidate, but do not accept it as the durable syntax until stale-confirmation behavior and the exact normalized Claim-content boundary are resolved.
+Do not resolve `Q-006` by reviewer voting. Variant D remains the leading fit for the product's human-readable-file principle, but only if a corrected D+ can be parsed and validated by a small deterministic implementation. Variant A+ remains the fallback if that grammar proves too complex.

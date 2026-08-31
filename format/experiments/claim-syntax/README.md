@@ -23,6 +23,7 @@ It also requires `SUB-020` and `SUB-040` through relationships `R1` and `R2`.
 ## Variants
 
 - [`variant-a-frontmatter.md`](variant-a-frontmatter.md) — statements and metadata live in YAML frontmatter.
+- [`variant-a-plus-frontmatter.md`](variant-a-plus-frontmatter.md) — stricter A proposal with ID-keyed mappings, explicit format version, one title source, and additive provenance semantics.
 - [`variant-b-markdown-blocks.md`](variant-b-markdown-blocks.md) — Claims are first-class Markdown sections with structured labels.
 - [`variant-c/`](variant-c/) — readable Markdown statements and a separate YAML metadata sidecar.
 - [`variant-d-fenced-metadata.md`](variant-d-fenced-metadata.md) — ID-only Markdown sections with adjacent fenced YAML overrides, added after independent review.

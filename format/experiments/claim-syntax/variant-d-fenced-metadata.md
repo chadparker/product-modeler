@@ -29,8 +29,10 @@ Questions are prioritized by expected downstream impact.
 Balanced is the default Mutation Mode.
 
 ```product-claim
-basedOn:
-  - DEC-002
+provenance:
+  basedOn:
+    add:
+      - DEC-002
 ```
 
 ### C4
@@ -38,8 +40,10 @@ basedOn:
 Every applied Mutation Transaction is summarized and supports atomic Undo.
 
 ```product-claim
-basedOn:
-  - DEC-002
+provenance:
+  basedOn:
+    add:
+      - DEC-002
 ```
 
 ## Relationships
