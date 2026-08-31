@@ -48,6 +48,96 @@ Completed:
 
 Next implementation task: construct entity and Claim indexes and diagnose duplicate IDs. Reference resolution and graph construction follow.
 
+### Next task specification: identity indexing
+
+Implement this bounded slice before cross-file reference resolution.
+
+#### Data model
+
+Add immutable declaration records with source locations:
+
+- `EntityDeclaration`: entity ID, entity type, repository-relative path, ID line, file kind, and originating `RepositoryFile`;
+- `ClaimDeclaration`: full address, entity ID, local Claim ID, repository-relative path, heading line, and originating Claim;
+- `RepositoryIndex`: all declaration buckets plus unambiguous lookup maps.
+
+The index should expose at least:
+
+- entity ID → ordered tuple of every declaration;
+- Claim address → ordered tuple of every declaration;
+- repository-relative file path → entity declaration, when present;
+- entity ID → declaration only when exactly one exists;
+- Claim address → declaration only when exactly one exists.
+
+Indexes are derived, disposable state. Do not write an index file or make it authoritative.
+
+#### What counts as a declaration
+
+- Include valid D+ documents, legacy entities, and the product manifest.
+- Include invalid or unsupported files when classification recovered a syntactically valid entity ID; otherwise a conflicting declaration could be hidden.
+- Index Claims only from D+ documents that parsed far enough to produce a `Document`.
+- Do not index support files.
+
+Add an explicit entity-ID source line to `RepositoryFile`; do not infer line numbers again during indexing.
+
+#### Duplicate semantics
+
+- Never choose a winner among duplicate declarations.
+- Preserve all declarations in deterministic path/line order.
+- Emit `entity.duplicate` on every declaration participating in an entity-ID collision.
+- Emit `claim.duplicate` on every declaration participating in a Claim-address collision.
+- Each diagnostic should identify the duplicated ID/address and list the other conflicting source locations.
+- Unambiguous lookup maps must omit collided identities.
+- Existing document-local duplicate checks remain in place; repository checks cover collisions across documents.
+
+#### Validation CLI for this slice
+
+Add:
+
+```bash
+product-model-parse validate model/
+product-model-parse validate model/ --json
+```
+
+For now, `validate` should combine:
+
+- discovery and classification diagnostics;
+- D+ document diagnostics;
+- entity duplicate diagnostics;
+- Claim-address duplicate diagnostics.
+
+It should exit nonzero when any error is present. Legacy migration warnings alone should not cause a nonzero exit. Keep `inspect` focused on classification and inventory.
+
+#### Required tests
+
+Add tests for:
+
+1. a manifest, legacy entity, and D+ entity indexed together;
+2. duplicate legacy entity IDs;
+3. duplicate D+ entity IDs;
+4. a collision between a legacy and D+ entity;
+5. a duplicate involving an invalid or unsupported file with a recoverable ID;
+6. duplicate Claim addresses caused by duplicate entity documents;
+7. deterministic declaration and diagnostic ordering;
+8. omission of collided identities from unambiguous lookups;
+9. `validate` text and JSON output plus exit status;
+10. the dogfood repository producing 31 unique entity declarations, zero indexed Claims before migration, and no duplicate errors.
+
+All existing parser and repository tests must continue to pass.
+
+#### Explicitly deferred
+
+Do not yet validate:
+
+- whether parent IDs exist;
+- relationship targets;
+- provenance/source references;
+- Capability hierarchy cycles;
+- dependency cycles;
+- Core Capability cardinality;
+- graph JSON.
+
+Those belong to the immediately following reference-resolution and graph slices.
+
 ### Proposed Python modules
 
 ```text
@@ -219,4 +309,4 @@ PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is entity and Claim indexing with deterministic duplicate-ID diagnostics.
+The next implementation task is the bounded identity-indexing slice specified above: declaration records, unambiguous lookups, duplicate diagnostics, and the initial `validate` command. Do not begin reference resolution in the same change.
