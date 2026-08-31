@@ -101,7 +101,7 @@ def _validate(argv: list[str]) -> int:
         print(
             f"{args.directory}: {counts['entityDeclarations']} entity declarations "
             f"({counts['uniqueEntities']} unique), {counts['claimDeclarations']} Claim declarations "
-            f"({counts['uniqueClaims']} unique)"
+            f"({counts['uniqueClaims']} unique), {counts['references']} references"
         )
         for diagnostic in diagnostics:
             _print_repository_diagnostic(diagnostic)

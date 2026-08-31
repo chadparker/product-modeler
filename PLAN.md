@@ -10,10 +10,10 @@ Product Modeler is in discovery and format-prototyping. The repository contains:
 - a dogfood Product Model under `model/`;
 - accepted architectural decisions under `docs/adr/`;
 - the accepted D+ Markdown-first Claim profile in `format/DPLUS.md`;
-- a Python D+ reference parser, repository indexer, validator CLI, and 69 tests under `reference_parser/`;
+- a Python D+ reference parser, repository indexer, validator CLI, and 82 tests under `reference_parser/`;
 - preserved syntax experiments and blind-review results under `format/experiments/claim-syntax/`.
 
-The repository layer now discovers and classifies files, constructs deterministic entity and Claim declaration indexes, rejects ambiguous duplicate identities, and preserves source diagnostics. `product-model-parse inspect` exposes repository inventory; `product-model-parse validate` combines file, document, and identity diagnostics. Cross-file references are not yet resolved.
+The repository layer now discovers and classifies files, constructs deterministic entity, Claim, and reference indexes, rejects ambiguous duplicate identities, resolves D+ and legacy cross-file references, and preserves source diagnostics. `product-model-parse inspect` exposes repository inventory; `product-model-parse validate` combines file, document, identity, hierarchy, and reference diagnostics. Cycle validation and graph projection are not yet implemented.
 
 ## Accepted foundation
 
@@ -50,9 +50,15 @@ Completed:
 - duplicate entity and cross-document Claim diagnostics without choosing a winner;
 - indexing of recoverable identities from invalid and unsupported files;
 - `product-model-parse validate model/ [--json]`;
-- dogfood indexing: 31 unique entity declarations, zero D+ Claims before migration, and no duplicate errors.
+- dogfood indexing: 31 unique entity declarations, zero D+ Claims before migration, and no duplicate errors;
+- D+ relationship-target and effective Claim/relationship provenance resolution;
+- legacy parent, relation, provenance, source, resolution, related, applicability, and capability reference extraction;
+- deterministic incoming and outgoing reference indexes;
+- resolved Capability parent and children indexes;
+- missing, ambiguous, unavailable, malformed, and wrong-type reference diagnostics;
+- dogfood reference resolution: 79 resolved references, 7 Capability parent links, and no errors.
 
-Next implementation task: resolve cross-file references and build relationship/parent/provenance indexes. Graph construction follows.
+Next implementation task: validate Core Capability cardinality and detect Capability hierarchy and dependency cycles. Deterministic graph JSON follows.
 
 ### Completed task specification: identity indexing
 
@@ -130,19 +136,16 @@ Add tests for:
 
 All existing parser and repository tests must continue to pass.
 
-#### Explicitly deferred
+#### Deferred beyond identity indexing
 
-Do not yet validate:
+The following were deferred from the identity-indexing change. Cross-file target, parent, and provenance/source resolution is now complete. Still deferred:
 
-- whether parent IDs exist;
-- relationship targets;
-- provenance/source references;
+- multiple or missing Core Capabilities;
 - Capability hierarchy cycles;
 - dependency cycles;
-- Core Capability cardinality;
 - graph JSON.
 
-Those belong to the immediately following reference-resolution and graph slices.
+These belong to the graph-validation and projection slices.
 
 ### Proposed Python modules
 
@@ -316,4 +319,4 @@ PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is cross-file reference resolution: relationship targets, Capability parents, provenance/source references, and deterministic incoming/outgoing indexes. Preserve ambiguous and missing references as diagnostics; do not begin graph JSON in the same change.
+The next implementation task is graph validation: enforce Core Capability cardinality, detect Capability hierarchy cycles as errors, and expose dependency cycles as warnings. Do not begin graph JSON projection in the same change.

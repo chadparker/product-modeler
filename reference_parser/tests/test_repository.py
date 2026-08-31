@@ -11,7 +11,13 @@ from unittest.mock import patch
 
 from product_model_parser import DPlusError
 from product_model_parser.__main__ import main
-from product_model_parser.repository import FileKind, build_repository_index, load_repository
+from product_model_parser.repository import (
+    FileKind,
+    ReferenceKind,
+    ReferenceResolution,
+    build_repository_index,
+    load_repository,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -874,6 +880,367 @@ class RepositoryIndexTests(unittest.TestCase):
         self.assertEqual(sum(len(items) for items in index.entity_declarations.values()), 31)
         self.assertEqual(len(index.entities_by_id), 31)
         self.assertEqual(index.claim_declarations, {})
+        self.assertFalse(index.has_errors, index.diagnostics)
+
+
+class RepositoryReferenceTests(unittest.TestCase):
+    def _write_entity(
+        self,
+        root: Path,
+        path: str,
+        entity_id: str,
+        entity_type: str,
+        extra: str = "",
+    ) -> None:
+        write(
+            root / path,
+            f"""
+            ---
+            id: {entity_id}
+            type: {entity_type}
+            {extra}
+            ---
+
+            # {entity_id}
+            """,
+        )
+
+    def _write_relationship_document(
+        self,
+        root: Path,
+        path: str,
+        entity_id: str,
+        target: str,
+        *,
+        defaults: str = "",
+    ) -> None:
+        defaults_block = textwrap.dedent(defaults).strip()
+        frontmatter_extra = f"{defaults_block}\n" if defaults_block else ""
+        write(
+            root / path,
+            f"---\n"
+            f"formatVersion: \"0.1\"\n"
+            f"id: {entity_id}\n"
+            f"type: capability\n"
+            f"{frontmatter_extra}"
+            f"---\n\n"
+            f"# {entity_id}\n\n"
+            f"## Claims\n\n"
+            f"### C1\n\n"
+            f"A Claim.\n\n"
+            f"## Relationships\n\n"
+            f"### R1\n\n"
+            f"```product-relationship\n"
+            f"type: requires\n"
+            f"target: {target}\n"
+            f"```\n",
+        )
+
+    def test_resolves_dplus_relationships_into_incoming_and_outgoing_indexes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_entity(root, "target.md", "CAP-001", "capability")
+            self._write_relationship_document(root, "source.md", "CAP-002", "CAP-001")
+
+            index = build_repository_index(load_repository(root))
+            reference = index.outgoing_references["CAP-002#R1"][0]
+
+            self.assertEqual(reference.kind, ReferenceKind.RELATIONSHIP)
+            self.assertEqual(reference.relationship_type, "requires")
+            self.assertEqual(reference.resolution, ReferenceResolution.RESOLVED)
+            self.assertEqual(index.incoming_references["CAP-001"], (reference,))
+            self.assertFalse(index.has_errors)
+
+    def test_missing_and_ambiguous_targets_are_diagnosed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_relationship_document(root, "missing.md", "CAP-002", "SUB-999")
+            self._write_entity(root, "a.md", "CAP-001", "capability")
+            self._write_entity(root, "b.md", "CAP-001", "capability")
+            self._write_relationship_document(root, "ambiguous.md", "CAP-003", "CAP-001")
+
+            index = build_repository_index(load_repository(root))
+            by_source = {item.source_address: item for item in index.references}
+
+            self.assertEqual(by_source["CAP-002#R1"].resolution, ReferenceResolution.MISSING)
+            self.assertEqual(by_source["CAP-003#R1"].resolution, ReferenceResolution.AMBIGUOUS)
+            self.assertIn("reference.missing", [item.code for item in index.diagnostics])
+            self.assertIn("reference.ambiguous", [item.code for item in index.diagnostics])
+
+    def test_unusable_unique_targets_are_not_marked_resolved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "future.md",
+                """
+                ---
+                formatVersion: "9.0"
+                id: CAP-900
+                type: capability
+                ---
+
+                # Future
+                """,
+            )
+            self._write_relationship_document(root, "source.md", "CAP-001", "CAP-900")
+
+            index = build_repository_index(load_repository(root))
+            reference = next(item for item in index.references if item.target_id == "CAP-900")
+
+            self.assertEqual(reference.resolution, ReferenceResolution.UNAVAILABLE)
+            self.assertIn("reference.unavailable", [item.code for item in index.diagnostics])
+
+    def test_indexes_effective_claim_and_relationship_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_entity(root, "source.md", "SRC-001", "source")
+            self._write_entity(root, "target.md", "CAP-001", "capability")
+            self._write_relationship_document(
+                root,
+                "document.md",
+                "CAP-002",
+                "CAP-001",
+                defaults="""
+                defaults:
+                  provenance:
+                    basedOn:
+                      - SRC-001
+                """,
+            )
+
+            index = build_repository_index(load_repository(root))
+            provenance = [item for item in index.references if item.kind == ReferenceKind.PROVENANCE]
+
+            self.assertEqual(
+                [(item.source_address, item.target_id) for item in provenance],
+                [("CAP-002#C1", "SRC-001"), ("CAP-002#R1", "SRC-001")],
+            )
+            self.assertEqual(len(index.incoming_references["SRC-001"]), 2)
+
+    def test_builds_capability_parent_and_children_indexes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "product.yaml",
+                """
+                formatVersion: "0.1"
+                id: PROD-001
+                type: product
+                title: Example
+                coreCapability: CAP-001
+                """,
+            )
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", "parent: null")
+            self._write_entity(root, "CAP-002.md", "CAP-002", "capability", "parent: CAP-001")
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(index.capability_parents, {"CAP-002": "CAP-001"})
+            self.assertEqual(index.capability_children, {"CAP-001": ("CAP-002",)})
+            self.assertEqual(
+                index.outgoing_references["PROD-001"][0].kind,
+                ReferenceKind.CORE_CAPABILITY,
+            )
+            self.assertFalse(index.has_errors)
+
+    def test_capability_parent_rules_are_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "product.yaml",
+                """
+                formatVersion: "0.1"
+                id: PROD-001
+                type: product
+                title: Example
+                coreCapability: CAP-001
+                """,
+            )
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", "parent: CAP-002")
+            self._write_entity(root, "CAP-002.md", "CAP-002", "capability", "parent: null")
+            self._write_entity(root, "CAP-003.md", "CAP-003", "capability", "parent: SUB-001")
+            self._write_entity(root, "SUB-001.md", "SUB-001", "subsystem")
+
+            index = build_repository_index(load_repository(root))
+            codes = [item.code for item in index.diagnostics]
+
+            self.assertIn("capability.parent-root", codes)
+            self.assertIn("capability.parent-required", codes)
+            self.assertIn("capability.parent-type", codes)
+            self.assertNotIn("CAP-001", index.capability_parents)
+            self.assertNotIn("CAP-001", index.capability_children.get("CAP-002", ()))
+
+    def test_indexes_legacy_relationship_and_source_references_with_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_entity(root, "SRC-001.md", "SRC-001", "source")
+            self._write_entity(root, "SUB-001.md", "SUB-001", "subsystem")
+            write(
+                root / "CAP-001.md",
+                """
+                ---
+                id: CAP-001
+                type: capability
+                provenance:
+                  - source: SRC-001
+                relations:
+                  requires:
+                    - SUB-001
+                ---
+
+                # Capability
+                """,
+            )
+
+            index = build_repository_index(load_repository(root))
+            references = index.outgoing_references["CAP-001"]
+
+            self.assertEqual(
+                [(item.kind, item.target_id, item.line) for item in references],
+                [
+                    (ReferenceKind.PROVENANCE, "SRC-001", 5),
+                    (ReferenceKind.RELATIONSHIP, "SUB-001", 8),
+                ],
+            )
+
+    def test_malformed_legacy_reference_structures_are_diagnosed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "CAP-001.md",
+                """
+                ---
+                id: CAP-001
+                type: capability
+                provenance:
+                  - kind: confirmation
+                relations:
+                  - requires
+                related: CAP-002
+                sources: null
+                capabilities: null
+                ---
+
+                # Capability
+                """,
+            )
+
+            index = build_repository_index(load_repository(root))
+            diagnostics = [item for item in index.diagnostics if item.code == "reference.structure"]
+
+            self.assertEqual(len(diagnostics), 5)
+            self.assertEqual([item.line for item in diagnostics], [5, 7, 8, 9, 10])
+
+    def test_semantically_typed_legacy_references_validate_target_types(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability")
+            self._write_entity(root, "SUB-001.md", "SUB-001", "subsystem")
+            write(
+                root / "Q-001.md",
+                """
+                ---
+                id: Q-001
+                type: question
+                resolvedBy: CAP-001
+                ---
+
+                # Question
+                """,
+            )
+            write(
+                root / "DEC-001.md",
+                """
+                ---
+                id: DEC-001
+                type: decision
+                resolves:
+                  - CAP-001
+                ---
+
+                # Decision
+                """,
+            )
+            write(
+                root / "UI-001.md",
+                """
+                ---
+                id: UI-001
+                type: interface
+                capabilities:
+                  - SUB-001
+                ---
+
+                # Interface
+                """,
+            )
+
+            diagnostics = build_repository_index(load_repository(root)).diagnostics
+            type_diagnostics = [item for item in diagnostics if item.code == "reference.type"]
+
+            self.assertEqual(len(type_diagnostics), 3)
+            self.assertEqual(
+                {item.address for item in type_diagnostics},
+                {"Q-001", "DEC-001", "UI-001"},
+            )
+
+    def test_legacy_reference_syntax_errors_preserve_item_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "CAP-001.md",
+                """
+                ---
+                id: CAP-001
+                type: capability
+                relations:
+                  requires:
+                    - not-an-entity-id
+                ---
+
+                # Capability
+                """,
+            )
+
+            index = build_repository_index(load_repository(root))
+            diagnostic = next(item for item in index.diagnostics if item.code == "reference.syntax")
+
+            self.assertEqual(diagnostic.line, 6)
+            self.assertEqual(diagnostic.address, "CAP-001")
+            self.assertFalse(index.references)
+
+    def test_dplus_reference_format_errors_are_not_duplicated_by_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_relationship_document(root, "CAP-001.md", "CAP-001", "invalid")
+
+            repository = load_repository(root)
+            index = build_repository_index(repository)
+
+            self.assertIn("reference.format", [item.code for item in repository.diagnostics])
+            self.assertNotIn("reference.syntax", [item.code for item in index.diagnostics])
+            self.assertFalse(index.references)
+
+    def test_reference_serialization_is_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_entity(root, "target.md", "CAP-001", "capability")
+            self._write_relationship_document(root, "z.md", "CAP-003", "CAP-001")
+            self._write_relationship_document(root, "a.md", "CAP-002", "CAP-001")
+
+            first = build_repository_index(load_repository(root)).to_dict()
+            second = build_repository_index(load_repository(root)).to_dict()
+
+            self.assertEqual(first, second)
+            self.assertEqual([item["path"] for item in first["references"]], ["a.md", "z.md"])
+            json.dumps(first)
+
+    def test_resolves_all_current_dogfood_references(self) -> None:
+        index = build_repository_index(load_repository(REPO_ROOT / "model"))
+
+        self.assertEqual(len(index.references), 79)
+        self.assertTrue(all(item.resolution == ReferenceResolution.RESOLVED for item in index.references))
+        self.assertEqual(len(index.capability_parents), 7)
         self.assertFalse(index.has_errors, index.diagnostics)
 
 

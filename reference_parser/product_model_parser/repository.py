@@ -15,7 +15,7 @@ from .parser import (
     parse_text,
     parse_yaml_mapping,
     yaml_mapping_key_lines,
-    yaml_mapping_value_lines,
+    yaml_value_lines,
 )
 
 
@@ -42,6 +42,21 @@ class FileKind(str, Enum):
     SUPPORT = "support"
     UNSUPPORTED = "unsupported"
     INVALID = "invalid"
+
+
+class ReferenceKind(str, Enum):
+    CORE_CAPABILITY = "core-capability"
+    PARENT = "parent"
+    RELATIONSHIP = "relationship"
+    PROVENANCE = "provenance"
+    SOURCE = "source"
+
+
+class ReferenceResolution(str, Enum):
+    RESOLVED = "resolved"
+    MISSING = "missing"
+    AMBIGUOUS = "ambiguous"
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True)
@@ -74,6 +89,7 @@ class RepositoryFile:
     document: Document | None = None
     diagnostics: list[RepositoryDiagnostic] = field(default_factory=list)
     entity_line: int | None = None
+    metadata_value_lines: dict[str, int] = field(default_factory=dict)
 
     @property
     def entity_id(self) -> str | None:
@@ -94,6 +110,8 @@ class RepositoryFile:
             result["metadata"] = self.metadata
         if self.entity_line is not None:
             result["entityLine"] = self.entity_line
+        if self.metadata_value_lines:
+            result["metadataValueLines"] = self.metadata_value_lines
         if self.document is not None:
             result["document"] = {
                 "id": self.document.id,
@@ -147,6 +165,32 @@ class ClaimDeclaration:
         }
 
 
+@dataclass(frozen=True)
+class ReferenceDeclaration:
+    kind: ReferenceKind
+    source_address: str
+    source_entity_id: str
+    target_id: str
+    path: str
+    line: int
+    resolution: ReferenceResolution
+    relationship_type: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "kind": self.kind.value,
+            "source": self.source_address,
+            "sourceEntityId": self.source_entity_id,
+            "target": self.target_id,
+            "path": self.path,
+            "line": self.line,
+            "resolution": self.resolution.value,
+        }
+        if self.relationship_type is not None:
+            result["relationshipType"] = self.relationship_type
+        return result
+
+
 @dataclass
 class RepositoryIndex:
     root: Path
@@ -155,6 +199,11 @@ class RepositoryIndex:
     entities_by_id: dict[str, EntityDeclaration]
     claims_by_address: dict[str, ClaimDeclaration]
     entities_by_file: dict[str, EntityDeclaration]
+    references: tuple[ReferenceDeclaration, ...] = ()
+    outgoing_references: dict[str, tuple[ReferenceDeclaration, ...]] = field(default_factory=dict)
+    incoming_references: dict[str, tuple[ReferenceDeclaration, ...]] = field(default_factory=dict)
+    capability_parents: dict[str, str] = field(default_factory=dict)
+    capability_children: dict[str, tuple[str, ...]] = field(default_factory=dict)
     diagnostics: list[RepositoryDiagnostic] = field(default_factory=list)
 
     @property
@@ -169,6 +218,7 @@ class RepositoryIndex:
                 "uniqueEntities": len(self.entities_by_id),
                 "claimDeclarations": sum(len(items) for items in self.claim_declarations.values()),
                 "uniqueClaims": len(self.claims_by_address),
+                "references": len(self.references),
             },
             "hasErrors": self.has_errors,
             "entities": [
@@ -181,6 +231,12 @@ class RepositoryIndex:
                 for address in sorted(self.claim_declarations)
                 for declaration in self.claim_declarations[address]
             ],
+            "references": [item.to_dict() for item in self.references],
+            "capabilityParents": self.capability_parents,
+            "capabilityChildren": {
+                entity_id: list(children)
+                for entity_id, children in self.capability_children.items()
+            },
             "diagnostics": [item.to_dict() for item in self.diagnostics],
         }
 
@@ -372,7 +428,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
     format_version = metadata.get("formatVersion")
     metadata_id = metadata.get("id")
     metadata_key_lines = yaml_mapping_key_lines(frontmatter_text, source=str(path), line=2)
-    metadata_value_lines = yaml_mapping_value_lines(frontmatter_text, source=str(path), line=2)
+    metadata_value_lines = yaml_value_lines(frontmatter_text, source=str(path), line=2)
     entity_line = (
         metadata_value_lines.get("id")
         if isinstance(metadata_id, str) and ENTITY_ID_RE.fullmatch(metadata_id)
@@ -393,6 +449,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
             metadata=metadata,
             diagnostics=[diagnostic],
             entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
         )
 
     if format_version == "0.1":
@@ -411,6 +468,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
                     )
                 ],
                 entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
             )
         diagnostics = [
             RepositoryDiagnostic(
@@ -430,6 +488,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
             document=document,
             diagnostics=diagnostics,
             entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
         )
 
     entity_id = metadata.get("id")
@@ -468,6 +527,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
                 metadata=metadata,
                 diagnostics=diagnostics,
                 entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
             )
         diagnostics.append(
             _diagnostic(
@@ -485,6 +545,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
             metadata=metadata,
             diagnostics=diagnostics,
             entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
         )
 
     return RepositoryFile(relative_path, FileKind.SUPPORT, metadata=metadata)
@@ -530,7 +591,7 @@ def _classify_yaml(path: Path, relative_path: str) -> RepositoryFile:
 
     metadata_id = metadata.get("id")
     metadata_key_lines = yaml_mapping_key_lines(text, source=str(path), line=1)
-    metadata_value_lines = yaml_mapping_value_lines(text, source=str(path), line=1)
+    metadata_value_lines = yaml_value_lines(text, source=str(path), line=1)
     entity_line = (
         metadata_value_lines.get("id")
         if isinstance(metadata_id, str) and ENTITY_ID_RE.fullmatch(metadata_id)
@@ -550,6 +611,7 @@ def _classify_yaml(path: Path, relative_path: str) -> RepositoryFile:
             metadata=metadata,
             diagnostics=[diagnostic],
             entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
         )
 
     if manifest_candidate:
@@ -603,6 +665,7 @@ def _classify_yaml(path: Path, relative_path: str) -> RepositoryFile:
             metadata=metadata,
             diagnostics=diagnostics,
             entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
         )
 
     entity_id = metadata.get("id")
@@ -620,6 +683,7 @@ def _classify_yaml(path: Path, relative_path: str) -> RepositoryFile:
             metadata=metadata,
             diagnostics=[diagnostic],
             entity_line=entity_line,
+            metadata_value_lines=metadata_value_lines,
         )
 
     return RepositoryFile(relative_path, FileKind.SUPPORT, metadata=metadata)
@@ -656,6 +720,103 @@ def load_repository(root: str | Path) -> Repository:
         for path in paths
     ]
     return Repository(root_path, files)
+
+
+def _metadata_value_line(item: RepositoryFile, path: str, fallback: int = 1) -> int:
+    return item.metadata_value_lines.get(path, item.entity_line or fallback)
+
+
+def _add_reference(
+    references: list[ReferenceDeclaration],
+    diagnostics: list[RepositoryDiagnostic],
+    entity_declarations: dict[str, tuple[EntityDeclaration, ...]],
+    *,
+    kind: ReferenceKind,
+    source_address: str,
+    source_entity_id: str,
+    target: Any,
+    path: str,
+    line: int,
+    relationship_type: str | None = None,
+    report_invalid: bool = True,
+    expected_type: str | None = None,
+    type_code: str = "reference.type",
+) -> ReferenceDeclaration | None:
+    if not isinstance(target, str) or not ENTITY_ID_RE.fullmatch(target):
+        if report_invalid:
+            diagnostics.append(
+                _diagnostic(
+                    path,
+                    "reference.syntax",
+                    f"{kind.value} target must be an entity ID matching {ENTITY_ID_RE.pattern}",
+                    line=line,
+                    address=source_address,
+                )
+            )
+        return None
+
+    targets = entity_declarations.get(target, ())
+    if not targets:
+        resolution = ReferenceResolution.MISSING
+        diagnostics.append(
+            _diagnostic(
+                path,
+                "reference.missing",
+                f"{kind.value} target {target} does not exist",
+                line=line,
+                address=source_address,
+            )
+        )
+    elif len(targets) > 1:
+        resolution = ReferenceResolution.AMBIGUOUS
+        locations = ", ".join(f"{item.path}:{item.line}" for item in targets)
+        diagnostics.append(
+            _diagnostic(
+                path,
+                "reference.ambiguous",
+                f"{kind.value} target {target} is ambiguous; declared at {locations}",
+                line=line,
+                address=source_address,
+            )
+        )
+    elif targets[0].kind in {FileKind.INVALID, FileKind.UNSUPPORTED}:
+        resolution = ReferenceResolution.UNAVAILABLE
+        diagnostics.append(
+            _diagnostic(
+                path,
+                "reference.unavailable",
+                f"{kind.value} target {target} is declared by an unusable {targets[0].kind.value} file "
+                f"at {targets[0].path}:{targets[0].line}",
+                line=line,
+                address=source_address,
+            )
+        )
+    else:
+        resolution = ReferenceResolution.RESOLVED
+        if expected_type is not None and targets[0].entity_type != expected_type:
+            diagnostics.append(
+                _diagnostic(
+                    path,
+                    type_code,
+                    f"{kind.value} target {target} must have type {expected_type!r}, "
+                    f"not {targets[0].entity_type!r}",
+                    line=line,
+                    address=source_address,
+                )
+            )
+
+    declaration = ReferenceDeclaration(
+        kind=kind,
+        source_address=source_address,
+        source_entity_id=source_entity_id,
+        target_id=target,
+        path=path,
+        line=line,
+        resolution=resolution,
+        relationship_type=relationship_type,
+    )
+    references.append(declaration)
+    return declaration
 
 
 def _duplicate_diagnostics(
@@ -746,6 +907,317 @@ def build_repository_index(repository: Repository) -> RepositoryIndex:
         for address, items in claim_declarations.items()
         if len(items) == 1
     }
+
+    references: list[ReferenceDeclaration] = []
+    reference_diagnostics: list[RepositoryDiagnostic] = []
+    core_capability_ids = {
+        value
+        for item in repository.files
+        if item.kind != FileKind.SUPPORT and item.metadata.get("type") == "product"
+        for value in [item.metadata.get("coreCapability")]
+        if isinstance(value, str) and ENTITY_ID_RE.fullmatch(value)
+    }
+
+    for item in repository.files:
+        source_entity_id = item.entity_id
+        if (
+            item.kind == FileKind.SUPPORT
+            or source_entity_id is None
+            or not ENTITY_ID_RE.fullmatch(source_entity_id)
+        ):
+            continue
+        source_address = source_entity_id
+        metadata = item.metadata
+        entity_type = metadata.get("type")
+
+        if entity_type == "product" and "coreCapability" in metadata:
+            _add_reference(
+                references,
+                reference_diagnostics,
+                entity_declarations,
+                kind=ReferenceKind.CORE_CAPABILITY,
+                source_address=source_address,
+                source_entity_id=source_entity_id,
+                target=metadata.get("coreCapability"),
+                path=item.path,
+                line=_metadata_value_line(item, "coreCapability"),
+                expected_type="capability",
+                type_code="product.core-capability-type",
+            )
+
+        if entity_type == "capability":
+            parent_present = "parent" in metadata
+            parent = metadata.get("parent")
+            is_core = source_entity_id in core_capability_ids
+            if is_core and parent not in (None, ""):
+                reference_diagnostics.append(
+                    _diagnostic(
+                        item.path,
+                        "capability.parent-root",
+                        "the Core Capability must not declare a parent",
+                        line=_metadata_value_line(item, "parent"),
+                        address=source_address,
+                    )
+                )
+            elif core_capability_ids and not is_core and (not parent_present or parent is None):
+                reference_diagnostics.append(
+                    _diagnostic(
+                        item.path,
+                        "capability.parent-required",
+                        "non-core Capability must declare a parent",
+                        line=_metadata_value_line(item, "parent"),
+                        address=source_address,
+                    )
+                )
+            if parent_present and parent is not None:
+                _add_reference(
+                    references,
+                    reference_diagnostics,
+                    entity_declarations,
+                    kind=ReferenceKind.PARENT,
+                    source_address=source_address,
+                    source_entity_id=source_entity_id,
+                    target=parent,
+                    path=item.path,
+                    line=_metadata_value_line(item, "parent"),
+                    report_invalid=item.document is None,
+                    expected_type="capability",
+                    type_code="capability.parent-type",
+                )
+
+        if item.document is not None:
+            for claim in item.document.claims:
+                claim_address = f"{source_entity_id}#{claim.id}"
+                for target in claim.effective_based_on:
+                    _add_reference(
+                        references,
+                        reference_diagnostics,
+                        entity_declarations,
+                        kind=ReferenceKind.PROVENANCE,
+                        source_address=claim_address,
+                        source_entity_id=source_entity_id,
+                        target=target,
+                        path=item.path,
+                        line=claim.line,
+                        report_invalid=False,
+                    )
+            for relationship in item.document.relationships:
+                relationship_address = f"{source_entity_id}#{relationship.id}"
+                _add_reference(
+                    references,
+                    reference_diagnostics,
+                    entity_declarations,
+                    kind=ReferenceKind.RELATIONSHIP,
+                    source_address=relationship_address,
+                    source_entity_id=source_entity_id,
+                    target=relationship.target,
+                    path=item.path,
+                    line=relationship.line,
+                    relationship_type=relationship.type,
+                    report_invalid=False,
+                )
+                for target in relationship.effective_based_on:
+                    _add_reference(
+                        references,
+                        reference_diagnostics,
+                        entity_declarations,
+                        kind=ReferenceKind.PROVENANCE,
+                        source_address=relationship_address,
+                        source_entity_id=source_entity_id,
+                        target=target,
+                        path=item.path,
+                        line=relationship.line,
+                        report_invalid=False,
+                    )
+            continue
+
+        if "sources" in metadata:
+            sources = metadata.get("sources")
+            if isinstance(sources, list):
+                for index, target in enumerate(sources):
+                    _add_reference(
+                        references,
+                        reference_diagnostics,
+                        entity_declarations,
+                        kind=ReferenceKind.SOURCE,
+                        source_address=source_address,
+                        source_entity_id=source_entity_id,
+                        target=target,
+                        path=item.path,
+                        line=_metadata_value_line(item, f"sources[{index}]"),
+                        expected_type="source",
+                    )
+            else:
+                reference_diagnostics.append(
+                    _diagnostic(
+                        item.path,
+                        "reference.structure",
+                        "sources must be a list of entity IDs",
+                        line=_metadata_value_line(item, "sources"),
+                        address=source_address,
+                    )
+                )
+
+        provenance = metadata.get("provenance")
+        if "provenance" in metadata and not isinstance(provenance, list):
+            reference_diagnostics.append(
+                _diagnostic(
+                    item.path,
+                    "reference.structure",
+                    "legacy provenance must be a list of mappings containing source",
+                    line=_metadata_value_line(item, "provenance"),
+                    address=source_address,
+                )
+            )
+        elif isinstance(provenance, list):
+            for index, entry in enumerate(provenance):
+                if not isinstance(entry, dict) or "source" not in entry:
+                    reference_diagnostics.append(
+                        _diagnostic(
+                            item.path,
+                            "reference.structure",
+                            "legacy provenance entry must be a mapping containing source",
+                            line=_metadata_value_line(item, f"provenance[{index}]"),
+                            address=source_address,
+                        )
+                    )
+                    continue
+                _add_reference(
+                    references,
+                    reference_diagnostics,
+                    entity_declarations,
+                    kind=ReferenceKind.PROVENANCE,
+                    source_address=source_address,
+                    source_entity_id=source_entity_id,
+                    target=entry.get("source"),
+                    path=item.path,
+                    line=_metadata_value_line(item, f"provenance[{index}].source"),
+                    expected_type="source",
+                )
+
+        relations = metadata.get("relations")
+        if "relations" in metadata and not isinstance(relations, dict):
+            reference_diagnostics.append(
+                _diagnostic(
+                    item.path,
+                    "reference.structure",
+                    "relations must be a mapping from relationship type to targets",
+                    line=_metadata_value_line(item, "relations"),
+                    address=source_address,
+                )
+            )
+        elif isinstance(relations, dict):
+            for relationship_type, targets in relations.items():
+                if not isinstance(relationship_type, str):
+                    continue
+                values = targets if isinstance(targets, list) else [targets]
+                for index, target in enumerate(values):
+                    suffix = f"[{index}]" if isinstance(targets, list) else ""
+                    _add_reference(
+                        references,
+                        reference_diagnostics,
+                        entity_declarations,
+                        kind=ReferenceKind.RELATIONSHIP,
+                        source_address=source_address,
+                        source_entity_id=source_entity_id,
+                        target=target,
+                        path=item.path,
+                        line=_metadata_value_line(item, f"relations.{relationship_type}{suffix}"),
+                        relationship_type=relationship_type,
+                    )
+
+        if "resolvedBy" in metadata:
+            _add_reference(
+                references,
+                reference_diagnostics,
+                entity_declarations,
+                kind=ReferenceKind.RELATIONSHIP,
+                source_address=source_address,
+                source_entity_id=source_entity_id,
+                target=metadata.get("resolvedBy"),
+                path=item.path,
+                line=_metadata_value_line(item, "resolvedBy"),
+                relationship_type="resolvedBy",
+                expected_type="decision",
+            )
+        expected_types = {
+            "resolves": "question",
+            "capabilities": "capability",
+        }
+        for field_name in ("resolves", "related", "appliesTo", "capabilities"):
+            if field_name not in metadata:
+                continue
+            targets = metadata.get(field_name)
+            if not isinstance(targets, list):
+                reference_diagnostics.append(
+                    _diagnostic(
+                        item.path,
+                        "reference.structure",
+                        f"{field_name} must be a list of entity IDs",
+                        line=_metadata_value_line(item, field_name),
+                        address=source_address,
+                    )
+                )
+                continue
+            for index, target in enumerate(targets):
+                _add_reference(
+                    references,
+                    reference_diagnostics,
+                    entity_declarations,
+                    kind=ReferenceKind.RELATIONSHIP,
+                    source_address=source_address,
+                    source_entity_id=source_entity_id,
+                    target=target,
+                    path=item.path,
+                    line=_metadata_value_line(item, f"{field_name}[{index}]"),
+                    relationship_type=field_name,
+                    expected_type=expected_types.get(field_name),
+                )
+
+    references.sort(
+        key=lambda item: (
+            item.path,
+            item.line,
+            item.source_address,
+            item.kind.value,
+            item.relationship_type or "",
+            item.target_id,
+        )
+    )
+    outgoing_buckets: dict[str, list[ReferenceDeclaration]] = {}
+    incoming_buckets: dict[str, list[ReferenceDeclaration]] = {}
+    for reference in references:
+        outgoing_buckets.setdefault(reference.source_address, []).append(reference)
+        incoming_buckets.setdefault(reference.target_id, []).append(reference)
+    outgoing_references = {
+        address: tuple(items) for address, items in sorted(outgoing_buckets.items())
+    }
+    incoming_references = {
+        target: tuple(items) for target, items in sorted(incoming_buckets.items())
+    }
+
+    capability_parents: dict[str, str] = {}
+    capability_children_buckets: dict[str, list[str]] = {}
+    for reference in references:
+        if (
+            reference.kind != ReferenceKind.PARENT
+            or reference.resolution != ReferenceResolution.RESOLVED
+            or reference.source_entity_id not in entities_by_id
+            or reference.source_entity_id in core_capability_ids
+        ):
+            continue
+        target = entities_by_id.get(reference.target_id)
+        source = entities_by_id[reference.source_entity_id]
+        if target is None or target.entity_type != "capability" or source.entity_type != "capability":
+            continue
+        capability_parents[reference.source_entity_id] = reference.target_id
+        capability_children_buckets.setdefault(reference.target_id, []).append(reference.source_entity_id)
+    capability_parents = dict(sorted(capability_parents.items()))
+    capability_children = {
+        entity_id: tuple(sorted(children))
+        for entity_id, children in sorted(capability_children_buckets.items())
+    }
+
     diagnostics = _duplicate_diagnostics(
         "entity.duplicate",
         "entity ID",
@@ -759,6 +1231,7 @@ def build_repository_index(repository: Repository) -> RepositoryIndex:
             across_files_only=True,
         )
     )
+    diagnostics.extend(reference_diagnostics)
     diagnostics.sort(key=lambda item: (item.path, item.line, item.code, item.address or ""))
 
     return RepositoryIndex(
@@ -768,5 +1241,10 @@ def build_repository_index(repository: Repository) -> RepositoryIndex:
         entities_by_id=entities_by_id,
         claims_by_address=claims_by_address,
         entities_by_file=dict(sorted(entities_by_file.items())),
+        references=tuple(references),
+        outgoing_references=outgoing_references,
+        incoming_references=incoming_references,
+        capability_parents=capability_parents,
+        capability_children=capability_children,
         diagnostics=diagnostics,
     )
