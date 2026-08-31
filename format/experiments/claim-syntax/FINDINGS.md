@@ -63,6 +63,10 @@ The prompt, order mapping, summary, and complete raw responses are preserved in 
 
 The review also exposed correctable defects in the evaluated D sample: missing format version, title duplication, inconsistent provenance nesting, and an underspecified Claim-content boundary. The next useful experiment is a corrected D+ plus a small reference parser.
 
+## Outcome
+
+After reviewing the trade-off, the user selected D+. The corrected profile is documented in [`../../DPLUS.md`](../../DPLUS.md) and backed by an executable reference parser with conformance tests in [`../../../reference_parser/`](../../../reference_parser/). Confirmed Claims use content digests to detect stale review state.
+
 ## Current recommendation
 
-Do not resolve `Q-006` by reviewer voting. Variant D remains the leading fit for the product's human-readable-file principle, but only if a corrected D+ can be parsed and validated by a small deterministic implementation. Variant A+ remains the fallback if that grammar proves too complex.
+Use D+ for claim-bearing Product Model entities and migrate the dogfood model incrementally. Retain A+ and the reviews as evidence for the trade-off rather than as active alternatives.

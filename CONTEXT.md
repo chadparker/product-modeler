@@ -60,6 +60,18 @@ A stable reference formed from an entity ID and a local Claim ID, such as `CAP-0
 
 Entity-level evidence and review metadata inherited by contained Claims unless a Claim explicitly overrides them.
 
+## D+ Claim Document
+
+The accepted Markdown-first profile for claim-bearing Product Model entities. Normative Claims are Markdown sections with stable local-ID headings; optional structured overrides use adjacent YAML fences.
+
+## Content Digest
+
+A SHA-256 digest of normalized normative Claim Markdown used to bind confirmation to the exact reviewed content.
+
+## Stale Confirmation
+
+A validation state indicating that a confirmed Claim's current Content Digest no longer matches the digest recorded when it was confirmed.
+
 ## Provenance
 
 The recorded origin, evidence relationship, and review information associated with a Claim.

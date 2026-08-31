@@ -27,6 +27,8 @@ The founding discussion established the following confirmed direction:
 - AI changes use atomic Mutation Transactions with Fast, Review Everything, and Balanced modes;
 - Balanced is the default and protects confirmed or foundational intent;
 - entities provide Provenance Defaults while consequential Claims receive stable local IDs;
+- claim-bearing entities use the D+ Markdown-first profile with adjacent fenced metadata;
+- confirmed Claims are bound to reviewed content through SHA-256 digests;
 - appearance preservation is optional and granular.
 
 The original conversation remains the human source for nuances not yet represented in model version `0.1`.

@@ -27,6 +27,7 @@ It also requires `SUB-020` and `SUB-040` through relationships `R1` and `R2`.
 - [`variant-b-markdown-blocks.md`](variant-b-markdown-blocks.md) — Claims are first-class Markdown sections with structured labels.
 - [`variant-c/`](variant-c/) — readable Markdown statements and a separate YAML metadata sidecar.
 - [`variant-d-fenced-metadata.md`](variant-d-fenced-metadata.md) — ID-only Markdown sections with adjacent fenced YAML overrides, added after independent review.
+- [`variant-d-plus.md`](variant-d-plus.md) — corrected accepted D+ sample used by the reference parser tests.
 
 See [`FINDINGS.md`](FINDINGS.md) for the evaluation summary.
 

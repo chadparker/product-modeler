@@ -2,7 +2,8 @@
 id: Q-007
 type: question
 title: How should confirmed Claims become stale after content changes?
-status: unknown
+status: resolved
+resolvedBy: DEC-004
 impact: high
 related:
   - DEC-003
@@ -13,6 +14,8 @@ related:
 
 # How should confirmed Claims become stale after content changes?
 
-A Claim can be confirmed and later edited while its metadata still says confirmed. The model needs a deterministic way to detect that the reviewed content changed.
+## Resolution
 
-One option is to store a digest of normalized Claim content at confirmation time and mark review state stale when the current digest differs. This may limit whether confirmed review state can safely be inherited from an entity default.
+Confirmed Claims store a SHA-256 digest of normalized normative Claim Markdown. Validation reports stale confirmation when current content does not match the recorded digest. Confirmed state and content digests cannot be inherited from entity defaults.
+
+See [`../decisions/DEC-004-adopt-d-plus.md`](../decisions/DEC-004-adopt-d-plus.md) and [`../../format/DPLUS.md`](../../format/DPLUS.md).

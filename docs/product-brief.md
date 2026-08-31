@@ -61,6 +61,8 @@ The product does not:
 8. **Changes are explicit and atomic.** AI analysis emits structured, validated transactions with visible effects and Undo rather than silently rewriting intent.
 9. **Confirmed intent is protected.** Balanced mode stages AI-generated changes to confirmed or foundational behavior while allowing provisional exploration to remain fluid.
 10. **Provenance follows the decision boundary.** Entities provide defaults, while independently reviewable Claims receive precise evidence and review metadata.
+11. **Claims remain documents.** Normative behavior uses D+ Markdown sections with adjacent structured metadata rather than hiding prose in data structures.
+12. **Confirmation follows content.** Editing confirmed Claim content makes its recorded confirmation stale until reconfirmed.
 
 ## Success criteria for the first usable slice
 

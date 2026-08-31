@@ -12,7 +12,8 @@ The system accepts prose specifications and existing web-application source code
 - [`docs/golden-path.md`](docs/golden-path.md) — first end-to-end scenario
 - [`docs/adr/`](docs/adr/) — durable architectural decisions
 - [`model/`](model/) — dogfood Product Model for Product Modeler itself
-- [`format/`](format/) — evolving format documentation and schema
+- [`format/`](format/) — evolving format documentation and D+ profile
+- [`reference_parser/`](reference_parser/) — executable D+ parser, validator, CLI, and conformance tests
 
 ## Status
 
