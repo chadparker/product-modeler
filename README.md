@@ -6,6 +6,7 @@ The system accepts prose specifications and existing web-application source code
 
 ## Repository layout
 
+- [`PLAN.md`](PLAN.md) — current implementation plan and restart handoff
 - [`CONTEXT.md`](CONTEXT.md) — canonical domain vocabulary
 - [`docs/product-brief.md`](docs/product-brief.md) — product scope and principles
 - [`docs/analysis-method.md`](docs/analysis-method.md) — reasoning hierarchy
