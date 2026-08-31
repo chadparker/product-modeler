@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from .parser import DPlusError, parse_file
-from .repository import load_repository
+from .repository import RepositoryDiagnostic, build_repository_index, load_repository
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -23,6 +23,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="print computed Claim content digests",
     )
     return parser
+
+
+def _print_repository_diagnostic(diagnostic: RepositoryDiagnostic) -> None:
+    address = f" [{diagnostic.address}]" if diagnostic.address else ""
+    print(
+        f"{diagnostic.path}:{diagnostic.line}: {diagnostic.severity}: "
+        f"{diagnostic.code}{address}: {diagnostic.message}",
+        file=sys.stderr,
+    )
 
 
 def _inspect(argv: list[str]) -> int:
@@ -51,20 +60,61 @@ def _inspect(argv: list[str]) -> int:
             entity = f" [{item.entity_id}]" if item.entity_id else ""
             print(f"{item.kind.value:11} {item.path}{entity}")
         for diagnostic in repository.diagnostics:
-            address = f" [{diagnostic.address}]" if diagnostic.address else ""
-            print(
-                f"{diagnostic.path}:{diagnostic.line}: {diagnostic.severity}: "
-                f"{diagnostic.code}{address}: {diagnostic.message}",
-                file=sys.stderr,
-            )
+            _print_repository_diagnostic(diagnostic)
 
     return 1 if repository.has_errors else 0
+
+
+def _validate(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="product-model-parse validate",
+        description="Validate identities in a Product Model repository",
+    )
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("--json", action="store_true", help="print validation results as JSON")
+    args = parser.parse_args(argv)
+
+    try:
+        repository = load_repository(args.directory)
+    except OSError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    index = build_repository_index(repository)
+    diagnostics = sorted(
+        [*repository.diagnostics, *index.diagnostics],
+        key=lambda item: (item.path, item.line, item.code, item.address or ""),
+    )
+    has_errors = any(item.severity == "error" for item in diagnostics)
+    index_payload = index.to_dict()
+
+    if args.json:
+        payload = {
+            **index_payload,
+            "repositoryCounts": repository.counts,
+            "hasErrors": has_errors,
+            "diagnostics": [item.to_dict() for item in diagnostics],
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        counts = index_payload["counts"]
+        print(
+            f"{args.directory}: {counts['entityDeclarations']} entity declarations "
+            f"({counts['uniqueEntities']} unique), {counts['claimDeclarations']} Claim declarations "
+            f"({counts['uniqueClaims']} unique)"
+        )
+        for diagnostic in diagnostics:
+            _print_repository_diagnostic(diagnostic)
+
+    return 1 if has_errors else 0
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "inspect" and len(arguments) > 1:
         return _inspect(arguments[1:])
+    if arguments and arguments[0] == "validate":
+        return _validate(arguments[1:])
     if arguments and arguments[0] == "parse":
         arguments = arguments[1:]
 

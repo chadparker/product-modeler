@@ -277,6 +277,29 @@ def yaml_mapping_key_lines(text: str, *, source: str, line: int) -> dict[str, in
     return result
 
 
+def yaml_mapping_value_lines(text: str, *, source: str, line: int) -> dict[str, int]:
+    try:
+        node = yaml.compose(text, Loader=StrictLoader)
+    except RecursionError as exc:
+        raise DPlusError("YAML nesting exceeds the supported depth", source=source, line=line) from exc
+    if not isinstance(node, yaml.MappingNode):
+        return {}
+
+    result: dict[str, int] = {}
+    stack: list[tuple[yaml.MappingNode, str]] = [(node, "")]
+    while stack:
+        mapping, prefix = stack.pop()
+        for key_node, value_node in mapping.value:
+            if not isinstance(key_node, yaml.ScalarNode):
+                continue
+            key = str(key_node.value)
+            path = f"{prefix}.{key}" if prefix else key
+            result[path] = line + value_node.start_mark.line
+            if isinstance(value_node, yaml.MappingNode):
+                stack.append((value_node, path))
+    return result
+
+
 def _fence_open(line: str) -> tuple[str, int, str] | None:
     match = FENCE_RE.fullmatch(line)
     if not match:

@@ -10,10 +10,10 @@ Product Modeler is in discovery and format-prototyping. The repository contains:
 - a dogfood Product Model under `model/`;
 - accepted architectural decisions under `docs/adr/`;
 - the accepted D+ Markdown-first Claim profile in `format/DPLUS.md`;
-- a Python D+ reference parser, repository file classifier, CLI, and 54 tests under `reference_parser/`;
+- a Python D+ reference parser, repository indexer, validator CLI, and 69 tests under `reference_parser/`;
 - preserved syntax experiments and blind-review results under `format/experiments/claim-syntax/`.
 
-The repository layer now discovers files recursively and classifies D+ documents, the product manifest, legacy entities, support files, unsupported versions, and invalid files. It preserves file/line diagnostics and exposes deterministic JSON through `product-model-parse inspect`. It does not yet construct cross-file indexes or resolve references.
+The repository layer now discovers and classifies files, constructs deterministic entity and Claim declaration indexes, rejects ambiguous duplicate identities, and preserves source diagnostics. `product-model-parse inspect` exposes repository inventory; `product-model-parse validate` combines file, document, and identity diagnostics. Cross-file references are not yet resolved.
 
 ## Accepted foundation
 
@@ -44,13 +44,19 @@ Completed:
 - preservation of file and line diagnostics;
 - deterministic JSON serialization;
 - `product-model-parse inspect model/ [--json]`;
-- dogfood classification: 1 manifest, 30 legacy entities, and 3 support files.
+- dogfood classification: 1 manifest, 30 legacy entities, and 3 support files;
+- immutable entity and Claim declaration records with source locations;
+- deterministic declaration buckets and unambiguous identity lookups;
+- duplicate entity and cross-document Claim diagnostics without choosing a winner;
+- indexing of recoverable identities from invalid and unsupported files;
+- `product-model-parse validate model/ [--json]`;
+- dogfood indexing: 31 unique entity declarations, zero D+ Claims before migration, and no duplicate errors.
 
-Next implementation task: construct entity and Claim indexes and diagnose duplicate IDs. Reference resolution and graph construction follow.
+Next implementation task: resolve cross-file references and build relationship/parent/provenance indexes. Graph construction follows.
 
-### Next task specification: identity indexing
+### Completed task specification: identity indexing
 
-Implement this bounded slice before cross-file reference resolution.
+This bounded slice was completed before cross-file reference resolution.
 
 #### Data model
 
@@ -305,8 +311,9 @@ git status --short
 git log --oneline -8
 PYTHONPATH=reference_parser python3 -m unittest discover -s reference_parser/tests -q
 PYTHONPATH=reference_parser python3 -m product_model_parser inspect model/
+PYTHONPATH=reference_parser python3 -m product_model_parser validate model/
 PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is the bounded identity-indexing slice specified above: declaration records, unambiguous lookups, duplicate diagnostics, and the initial `validate` command. Do not begin reference resolution in the same change.
+The next implementation task is cross-file reference resolution: relationship targets, Capability parents, provenance/source references, and deterministic incoming/outgoing indexes. Preserve ambiguous and missing references as diagnostics; do not begin graph JSON in the same change.

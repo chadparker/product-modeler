@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from product_model_parser import DPlusError
 from product_model_parser.__main__ import main
-from product_model_parser.repository import FileKind, load_repository
+from product_model_parser.repository import FileKind, build_repository_index, load_repository
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -509,6 +509,372 @@ class RepositoryDiscoveryTests(unittest.TestCase):
         self.assertEqual(repository.counts[FileKind.SUPPORT.value], 3)
         self.assertEqual(repository.counts.get(FileKind.DPLUS.value, 0), 0)
         self.assertFalse(repository.has_errors, repository.diagnostics)
+
+
+class RepositoryIndexTests(unittest.TestCase):
+    def _write_legacy(self, root: Path, path: str, entity_id: str) -> None:
+        write(
+            root / path,
+            f"""
+            ---
+            id: {entity_id}
+            type: capability
+            ---
+
+            # {entity_id}
+            """,
+        )
+
+    def _write_dplus(
+        self,
+        root: Path,
+        path: str,
+        entity_id: str,
+        *,
+        claim_id: str | None = None,
+    ) -> None:
+        claims = ""
+        if claim_id is not None:
+            claims = f"""
+
+            ## Claims
+
+            ### {claim_id}
+
+            A Claim for {entity_id}.
+            """
+        write(
+            root / path,
+            f"""
+            ---
+            formatVersion: "0.1"
+            id: {entity_id}
+            type: capability
+            ---
+
+            # {entity_id}
+            {claims}
+            """,
+        )
+
+    def test_indexes_manifest_legacy_and_dplus_declarations(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "product.yaml",
+                """
+                formatVersion: "0.1"
+                id: PROD-001
+                type: product
+                title: Example
+                """,
+            )
+            self._write_legacy(root, "CAP-001.md", "CAP-001")
+            self._write_dplus(root, "CAP-002.md", "CAP-002", claim_id="C1")
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(set(index.entities_by_id), {"PROD-001", "CAP-001", "CAP-002"})
+            self.assertEqual(set(index.claims_by_address), {"CAP-002#C1"})
+            self.assertEqual(index.entities_by_file["product.yaml"].line, 2)
+            self.assertEqual(index.entities_by_file["CAP-001.md"].line, 2)
+            self.assertFalse(index.has_errors)
+
+    def test_duplicate_legacy_entities_report_every_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_legacy(root, "a.md", "CAP-001")
+            self._write_legacy(root, "z.md", "CAP-001")
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(
+                [item.path for item in index.entity_declarations["CAP-001"]],
+                ["a.md", "z.md"],
+            )
+            self.assertEqual(
+                [(item.path, item.code) for item in index.diagnostics],
+                [("a.md", "entity.duplicate"), ("z.md", "entity.duplicate")],
+            )
+            self.assertIn("z.md:2", index.diagnostics[0].message)
+            self.assertNotIn("CAP-001", index.entities_by_id)
+
+    def test_duplicate_dplus_entities_report_entity_collisions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_dplus(root, "a.md", "CAP-001")
+            self._write_dplus(root, "b.md", "CAP-001")
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(len(index.entity_declarations["CAP-001"]), 2)
+            self.assertEqual(
+                [item.code for item in index.diagnostics],
+                ["entity.duplicate", "entity.duplicate"],
+            )
+
+    def test_legacy_and_dplus_ids_can_collide(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_legacy(root, "legacy.md", "CAP-001")
+            self._write_dplus(root, "modern.md", "CAP-001")
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(
+                [item.kind for item in index.entity_declarations["CAP-001"]],
+                [FileKind.LEGACY, FileKind.DPLUS],
+            )
+            self.assertNotIn("CAP-001", index.entities_by_id)
+
+    def test_unsupported_file_with_recovered_id_participates_in_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_legacy(root, "legacy.md", "CAP-900")
+            write(
+                root / "future.md",
+                """
+                ---
+                formatVersion: "9.0"
+                id: CAP-900
+                type: capability
+                ---
+
+                # Future
+                """,
+            )
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(
+                [item.kind for item in index.entity_declarations["CAP-900"]],
+                [FileKind.UNSUPPORTED, FileKind.LEGACY],
+            )
+            self.assertEqual(
+                [item.code for item in index.diagnostics],
+                ["entity.duplicate", "entity.duplicate"],
+            )
+
+    def test_duplicate_entity_documents_create_duplicate_claim_addresses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_dplus(root, "a.md", "CAP-001", claim_id="C1")
+            self._write_dplus(root, "b.md", "CAP-001", claim_id="C1")
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(len(index.claim_declarations["CAP-001#C1"]), 2)
+            self.assertNotIn("CAP-001#C1", index.claims_by_address)
+            self.assertEqual(
+                [item.code for item in index.diagnostics],
+                [
+                    "entity.duplicate",
+                    "claim.duplicate",
+                    "entity.duplicate",
+                    "claim.duplicate",
+                ],
+            )
+
+    def test_index_serialization_and_diagnostics_are_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_legacy(root, "z.md", "CAP-001")
+            self._write_legacy(root, "a.md", "CAP-001")
+
+            first = build_repository_index(load_repository(root)).to_dict()
+            second = build_repository_index(load_repository(root)).to_dict()
+
+            self.assertEqual(first, second)
+            self.assertEqual([item["path"] for item in first["entities"]], ["a.md", "z.md"])
+            json.dumps(first)
+
+    def test_validate_cli_reports_duplicates_in_text_and_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_legacy(root, "a.md", "CAP-001")
+            self._write_legacy(root, "b.md", "CAP-001")
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                text_status = main(["validate", str(root)])
+
+            self.assertEqual(text_status, 1)
+            self.assertIn("2 entity declarations (0 unique)", stdout.getvalue())
+            self.assertIn("entity.duplicate", stderr.getvalue())
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                json_status = main(["validate", str(root), "--json"])
+
+            self.assertEqual(json_status, 1)
+            self.assertEqual(stderr.getvalue(), "")
+            payload = json.loads(stdout.getvalue())
+            self.assertTrue(payload["hasErrors"])
+            self.assertEqual(payload["counts"]["entityDeclarations"], 2)
+            self.assertEqual(
+                [item["code"] for item in payload["diagnostics"]].count("entity.duplicate"),
+                2,
+            )
+
+    def test_validate_cli_allows_legacy_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_legacy(root, "CAP-001.md", "CAP-001")
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = main(["validate", str(root)])
+
+            self.assertEqual(status, 0)
+            self.assertIn("file.legacy", stderr.getvalue())
+
+    def test_entity_declaration_lines_follow_explicit_yaml_values(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "product.yaml",
+                """
+                ? id
+                : PROD-001
+                formatVersion: "0.1"
+                type: product
+                title: Example
+                """,
+            )
+            write(
+                root / "CAP-001.md",
+                """
+                ---
+                ? id
+                : CAP-001
+                formatVersion: "0.1"
+                type: capability
+                ---
+
+                # Capability
+                """,
+            )
+
+            index = build_repository_index(load_repository(root))
+
+            self.assertEqual(index.entities_by_id["PROD-001"].line, 2)
+            self.assertEqual(index.entities_by_id["CAP-001"].line, 3)
+
+    def test_flow_style_metadata_is_discovered_and_indexed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "historical.md",
+                """
+                ---
+                {id: CAP-001, type: capability}
+                ---
+
+                # Historical
+                """,
+            )
+            write(root / "future.yaml", "{id: CAP-002, type: capability}\n")
+
+            repository = load_repository(root)
+            index = build_repository_index(repository)
+
+            self.assertEqual(
+                {item.path: item.kind for item in repository.files},
+                {
+                    "future.yaml": FileKind.UNSUPPORTED,
+                    "historical.md": FileKind.LEGACY,
+                },
+            )
+            self.assertEqual(set(index.entities_by_id), {"CAP-001", "CAP-002"})
+
+    def test_explicit_yaml_diagnostics_use_actual_key_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "future.md",
+                """
+                ---
+                type: capability
+                ? formatVersion
+                : "9.0"
+                id: CAP-001
+                ---
+
+                # Future
+                """,
+            )
+            write(
+                root / "future.yaml",
+                """
+                id: CAP-002
+                ? formatVersion
+                : "9.0"
+                type: capability
+                """,
+            )
+
+            diagnostics = {
+                item.path: item
+                for item in load_repository(root).diagnostics
+                if item.code == "format.unsupported"
+            }
+
+            self.assertEqual(diagnostics["future.md"].line, 3)
+            self.assertEqual(diagnostics["future.yaml"].line, 2)
+
+    def test_document_local_claim_duplicates_do_not_get_repository_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(
+                root / "CAP-001.md",
+                """
+                ---
+                formatVersion: "0.1"
+                id: CAP-001
+                type: capability
+                ---
+
+                # Capability
+
+                ## Claims
+
+                ### C1
+
+                First.
+
+                ### C1
+
+                Second.
+                """,
+            )
+
+            repository = load_repository(root)
+            index = build_repository_index(repository)
+
+            self.assertIn("id.duplicate", [item.code for item in repository.diagnostics])
+            self.assertEqual(len(index.claim_declarations["CAP-001#C1"]), 2)
+            self.assertNotIn("CAP-001#C1", index.claims_by_address)
+            self.assertNotIn("claim.duplicate", [item.code for item in index.diagnostics])
+
+    def test_validate_without_directory_reports_cli_usage_error(self) -> None:
+        stderr = io.StringIO()
+        with redirect_stderr(stderr), self.assertRaises(SystemExit) as raised:
+            main(["validate"])
+
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("directory", stderr.getvalue())
+
+    def test_indexes_current_dogfood_repository_without_duplicates(self) -> None:
+        repository = load_repository(REPO_ROOT / "model")
+        index = build_repository_index(repository)
+
+        self.assertEqual(sum(len(items) for items in index.entity_declarations.values()), 31)
+        self.assertEqual(len(index.entities_by_id), 31)
+        self.assertEqual(index.claim_declarations, {})
+        self.assertFalse(index.has_errors, index.diagnostics)
 
 
 if __name__ == "__main__":

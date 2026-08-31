@@ -22,6 +22,8 @@ product-model-parse --json format/experiments/claim-syntax/variant-d-plus.md
 product-model-parse --digests format/experiments/claim-syntax/variant-d-plus.md
 product-model-parse inspect model/
 product-model-parse inspect model/ --json
+product-model-parse validate model/
+product-model-parse validate model/ --json
 ```
 
 The command exits nonzero for structural parse failures or validation errors.
@@ -34,4 +36,4 @@ PYTHONPATH=reference_parser python3 -m unittest discover -s reference_parser/tes
 
 ## Scope
 
-The parser validates individual D+ documents and can discover and classify all files in a Product Model repository. Repository inspection distinguishes D+ documents, the product manifest, legacy entities, support files, unsupported versions, and invalid files. Cross-file indexing and reference resolution are the next layer.
+The parser validates individual D+ documents, discovers and classifies Product Model repositories, and builds deterministic entity and Claim identity indexes. Repository validation reports file/document errors and duplicate identities while preserving source locations. Cross-file reference resolution is the next layer.

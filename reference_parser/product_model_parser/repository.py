@@ -8,11 +8,14 @@ import re
 from typing import Any
 
 from .parser import (
+    Claim,
     DPlusError,
     Document,
     ENTITY_ID_RE,
     parse_text,
     parse_yaml_mapping,
+    yaml_mapping_key_lines,
+    yaml_mapping_value_lines,
 )
 
 
@@ -70,6 +73,7 @@ class RepositoryFile:
     metadata: dict[str, Any] = field(default_factory=dict)
     document: Document | None = None
     diagnostics: list[RepositoryDiagnostic] = field(default_factory=list)
+    entity_line: int | None = None
 
     @property
     def entity_id(self) -> str | None:
@@ -88,6 +92,8 @@ class RepositoryFile:
         }
         if self.metadata:
             result["metadata"] = self.metadata
+        if self.entity_line is not None:
+            result["entityLine"] = self.entity_line
         if self.document is not None:
             result["document"] = {
                 "id": self.document.id,
@@ -99,6 +105,84 @@ class RepositoryFile:
         if self.diagnostics:
             result["diagnostics"] = [item.to_dict() for item in self.diagnostics]
         return result
+
+
+@dataclass(frozen=True)
+class EntityDeclaration:
+    entity_id: str
+    entity_type: str | None
+    path: str
+    line: int
+    kind: FileKind
+    repository_file: RepositoryFile = field(repr=False, compare=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "id": self.entity_id,
+            "path": self.path,
+            "line": self.line,
+            "kind": self.kind.value,
+        }
+        if self.entity_type is not None:
+            result["type"] = self.entity_type
+        return result
+
+
+@dataclass(frozen=True)
+class ClaimDeclaration:
+    address: str
+    entity_id: str
+    local_id: str
+    path: str
+    line: int
+    claim: Claim = field(repr=False, compare=False)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "address": self.address,
+            "entityId": self.entity_id,
+            "localId": self.local_id,
+            "path": self.path,
+            "line": self.line,
+        }
+
+
+@dataclass
+class RepositoryIndex:
+    root: Path
+    entity_declarations: dict[str, tuple[EntityDeclaration, ...]]
+    claim_declarations: dict[str, tuple[ClaimDeclaration, ...]]
+    entities_by_id: dict[str, EntityDeclaration]
+    claims_by_address: dict[str, ClaimDeclaration]
+    entities_by_file: dict[str, EntityDeclaration]
+    diagnostics: list[RepositoryDiagnostic] = field(default_factory=list)
+
+    @property
+    def has_errors(self) -> bool:
+        return any(item.severity == "error" for item in self.diagnostics)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "root": str(self.root),
+            "counts": {
+                "entityDeclarations": sum(len(items) for items in self.entity_declarations.values()),
+                "uniqueEntities": len(self.entities_by_id),
+                "claimDeclarations": sum(len(items) for items in self.claim_declarations.values()),
+                "uniqueClaims": len(self.claims_by_address),
+            },
+            "hasErrors": self.has_errors,
+            "entities": [
+                declaration.to_dict()
+                for entity_id in sorted(self.entity_declarations)
+                for declaration in self.entity_declarations[entity_id]
+            ],
+            "claims": [
+                declaration.to_dict()
+                for address in sorted(self.claim_declarations)
+                for declaration in self.claim_declarations[address]
+            ],
+            "diagnostics": [item.to_dict() for item in self.diagnostics],
+        }
 
 
 @dataclass
@@ -174,22 +258,21 @@ def _looks_like_model_metadata(text: str) -> bool:
     return _looks_like_entity_identity(text) or (format_version == "0.1" and has_identity_key)
 
 
-def _top_level_key_line(text: str, key: str, *, start_line: int = 1) -> int:
-    pattern = re.compile(rf"^(?:{re.escape(key)}|['\"]{re.escape(key)}['\"])\s*:")
-    for offset, line in enumerate(text.splitlines()):
-        if pattern.match(line):
-            return start_line + offset
-    return start_line
+def _metadata_has_entity_identity(metadata: dict[str, Any]) -> bool:
+    entity_id = metadata.get("id")
+    entity_type = metadata.get("type")
+    return (
+        bool(isinstance(entity_id, str) and ENTITY_ID_RE.fullmatch(entity_id))
+        or entity_type in MODEL_ENTITY_TYPES
+        or entity_type == "product"
+    )
 
 
-def _frontmatter_key_line(text: str, key: str) -> int:
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = normalized.split("\n")
-    try:
-        closing = lines.index("---", 1)
-    except ValueError:
-        return 1
-    return _top_level_key_line("\n".join(lines[1:closing]), key, start_line=2)
+def _metadata_looks_like_model(metadata: dict[str, Any]) -> bool:
+    has_identity_key = "id" in metadata or "type" in metadata
+    return _metadata_has_entity_identity(metadata) or (
+        metadata.get("formatVersion") == "0.1" and has_identity_key
+    )
 
 
 def _read_text(path: Path, relative_path: str) -> tuple[str | None, RepositoryDiagnostic | None]:
@@ -263,10 +346,10 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
             )
         return RepositoryFile(relative_path, FileKind.SUPPORT)
 
-    model_candidate = filename_implies_entity or _looks_like_model_metadata(frontmatter_text)
-    if not model_candidate:
-        return RepositoryFile(relative_path, FileKind.SUPPORT)
+    raw_model_candidate = filename_implies_entity or _looks_like_model_metadata(frontmatter_text)
     if not terminated:
+        if not raw_model_candidate:
+            return RepositoryFile(relative_path, FileKind.SUPPORT)
         error = DPlusError("unterminated YAML frontmatter", source=str(path), line=1)
         return RepositoryFile(
             relative_path,
@@ -276,20 +359,32 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
     try:
         metadata = parse_yaml_mapping(frontmatter_text, source=str(path), line=2)
     except DPlusError as exc:
+        if not raw_model_candidate:
+            return RepositoryFile(relative_path, FileKind.SUPPORT)
         return RepositoryFile(
             relative_path,
             FileKind.INVALID,
             diagnostics=[_parser_error(relative_path, exc)],
         )
+    if not filename_implies_entity and not _metadata_looks_like_model(metadata):
+        return RepositoryFile(relative_path, FileKind.SUPPORT, metadata=metadata)
 
     format_version = metadata.get("formatVersion")
+    metadata_id = metadata.get("id")
+    metadata_key_lines = yaml_mapping_key_lines(frontmatter_text, source=str(path), line=2)
+    metadata_value_lines = yaml_mapping_value_lines(frontmatter_text, source=str(path), line=2)
+    entity_line = (
+        metadata_value_lines.get("id")
+        if isinstance(metadata_id, str) and ENTITY_ID_RE.fullmatch(metadata_id)
+        else None
+    )
     if "formatVersion" in metadata and format_version != "0.1":
-        address = metadata.get("id") if isinstance(metadata.get("id"), str) and ENTITY_ID_RE.fullmatch(metadata["id"]) else None
+        address = metadata_id if entity_line is not None else None
         diagnostic = _diagnostic(
             relative_path,
             "format.unsupported",
             f"unsupported formatVersion {format_version!r}",
-            line=_frontmatter_key_line(text, "formatVersion"),
+            line=metadata_key_lines.get("formatVersion", 2),
             address=address,
         )
         return RepositoryFile(
@@ -297,6 +392,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
             FileKind.UNSUPPORTED,
             metadata=metadata,
             diagnostics=[diagnostic],
+            entity_line=entity_line,
         )
 
     if format_version == "0.1":
@@ -311,11 +407,10 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
                     _parser_error(
                         relative_path,
                         exc,
-                        address=metadata["id"]
-                        if isinstance(metadata.get("id"), str) and ENTITY_ID_RE.fullmatch(metadata["id"])
-                        else None,
+                        address=metadata_id if entity_line is not None else None,
                     )
                 ],
+                entity_line=entity_line,
             )
         diagnostics = [
             RepositoryDiagnostic(
@@ -334,6 +429,7 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
             metadata=document.metadata,
             document=document,
             diagnostics=diagnostics,
+            entity_line=entity_line,
         )
 
     entity_id = metadata.get("id")
@@ -346,38 +442,50 @@ def _classify_markdown(path: Path, relative_path: str) -> RepositoryFile:
     )
     if legacy_candidate:
         diagnostics: list[RepositoryDiagnostic] = []
-        if not isinstance(metadata.get("id"), str) or not ENTITY_ID_RE.fullmatch(metadata["id"]):
+        if not has_entity_id:
             diagnostics.append(
                 _diagnostic(
                     relative_path,
                     "legacy.id",
                     "legacy entity has an invalid or missing ID",
-                    line=_frontmatter_key_line(text, "id"),
+                    line=metadata_key_lines.get("id", 2),
                 )
             )
-        if not isinstance(metadata.get("type"), str) or not metadata["type"]:
+        if not isinstance(entity_type, str) or not entity_type:
             diagnostics.append(
                 _diagnostic(
                     relative_path,
                     "legacy.type",
                     "legacy entity has an invalid or missing type",
-                    line=_frontmatter_key_line(text, "type"),
+                    line=metadata_key_lines.get("type", 2),
                     address=entity_id if has_entity_id else None,
                 )
             )
         if diagnostics:
-            return RepositoryFile(relative_path, FileKind.INVALID, metadata=metadata, diagnostics=diagnostics)
+            return RepositoryFile(
+                relative_path,
+                FileKind.INVALID,
+                metadata=metadata,
+                diagnostics=diagnostics,
+                entity_line=entity_line,
+            )
         diagnostics.append(
             _diagnostic(
                 relative_path,
                 "file.legacy",
                 "legacy entity does not declare a D+ formatVersion",
-                line=_frontmatter_key_line(text, "formatVersion"),
+                line=metadata_key_lines.get("formatVersion", 2),
                 severity="warning",
-                address=metadata["id"],
+                address=entity_id,
             )
         )
-        return RepositoryFile(relative_path, FileKind.LEGACY, metadata=metadata, diagnostics=diagnostics)
+        return RepositoryFile(
+            relative_path,
+            FileKind.LEGACY,
+            metadata=metadata,
+            diagnostics=diagnostics,
+            entity_line=entity_line,
+        )
 
     return RepositoryFile(relative_path, FileKind.SUPPORT, metadata=metadata)
 
@@ -389,54 +497,71 @@ def _classify_yaml(path: Path, relative_path: str) -> RepositoryFile:
     if text.startswith("\ufeff"):
         diagnostic = _diagnostic(relative_path, "file.bom", "UTF-8 BOM is not allowed", line=1)
         return RepositoryFile(relative_path, FileKind.INVALID, diagnostics=[diagnostic])
+
     manifest_candidate = path.name.lower() in {"product.yaml", "product.yml"}
-    model_candidate = (
+    raw_model_candidate = (
         manifest_candidate
         or bool(ENTITY_FILENAME_RE.match(path.stem))
         or _looks_like_entity_identity(text)
     )
-    if not model_candidate:
-        return RepositoryFile(relative_path, FileKind.SUPPORT)
     try:
         metadata = parse_yaml_mapping(text, source=str(path), line=1)
     except DPlusError as exc:
+        if not raw_model_candidate:
+            return RepositoryFile(relative_path, FileKind.SUPPORT)
         return RepositoryFile(
             relative_path,
             FileKind.INVALID,
-            diagnostics=[_diagnostic(relative_path, "manifest.yaml", str(exc).split(": ", 1)[-1], line=exc.line or 1)],
+            diagnostics=[
+                _diagnostic(
+                    relative_path,
+                    "manifest.yaml",
+                    str(exc).split(": ", 1)[-1],
+                    line=exc.line or 1,
+                )
+            ],
         )
+    if (
+        not manifest_candidate
+        and not ENTITY_FILENAME_RE.match(path.stem)
+        and not _metadata_has_entity_identity(metadata)
+    ):
+        return RepositoryFile(relative_path, FileKind.SUPPORT, metadata=metadata)
 
+    metadata_id = metadata.get("id")
+    metadata_key_lines = yaml_mapping_key_lines(text, source=str(path), line=1)
+    metadata_value_lines = yaml_mapping_value_lines(text, source=str(path), line=1)
+    entity_line = (
+        metadata_value_lines.get("id")
+        if isinstance(metadata_id, str) and ENTITY_ID_RE.fullmatch(metadata_id)
+        else None
+    )
     if "formatVersion" in metadata and metadata.get("formatVersion") != "0.1":
-        address = metadata.get("id") if isinstance(metadata.get("id"), str) and ENTITY_ID_RE.fullmatch(metadata["id"]) else None
         diagnostic = _diagnostic(
             relative_path,
             "format.unsupported",
             f"unsupported formatVersion {metadata.get('formatVersion')!r}",
-            line=_top_level_key_line(text, "formatVersion"),
-            address=address,
+            line=metadata_key_lines.get("formatVersion", 1),
+            address=metadata_id if entity_line is not None else None,
         )
         return RepositoryFile(
             relative_path,
             FileKind.UNSUPPORTED,
             metadata=metadata,
             diagnostics=[diagnostic],
+            entity_line=entity_line,
         )
 
     if manifest_candidate:
         diagnostics: list[RepositoryDiagnostic] = []
-        manifest_id = metadata.get("id")
-        manifest_address = (
-            manifest_id
-            if isinstance(manifest_id, str) and ENTITY_ID_RE.fullmatch(manifest_id)
-            else None
-        )
+        manifest_address = metadata_id if entity_line is not None else None
         if metadata.get("formatVersion") != "0.1":
             diagnostics.append(
                 _diagnostic(
                     relative_path,
                     "manifest.format",
                     "product manifest requires formatVersion '0.1'",
-                    line=_top_level_key_line(text, "formatVersion"),
+                    line=metadata_key_lines.get("formatVersion", 1),
                     address=manifest_address,
                 )
             )
@@ -446,32 +571,39 @@ def _classify_yaml(path: Path, relative_path: str) -> RepositoryFile:
                     relative_path,
                     "manifest.type",
                     "product manifest requires type 'product'",
-                    line=_top_level_key_line(text, "type"),
+                    line=metadata_key_lines.get("type", 1),
                     address=manifest_address,
                 )
             )
-        if not isinstance(metadata.get("id"), str) or not ENTITY_ID_RE.fullmatch(metadata["id"]):
+        if entity_line is None:
             diagnostics.append(
                 _diagnostic(
                     relative_path,
                     "manifest.id",
                     "product manifest has an invalid or missing ID",
-                    line=_top_level_key_line(text, "id"),
+                    line=metadata_key_lines.get("id", 1),
                     address=manifest_address,
                 )
             )
-        if not isinstance(metadata.get("title"), str) or not metadata["title"].strip():
+        title = metadata.get("title")
+        if not isinstance(title, str) or not title.strip():
             diagnostics.append(
                 _diagnostic(
                     relative_path,
                     "manifest.title",
                     "product manifest has an invalid or missing title",
-                    line=_top_level_key_line(text, "title"),
+                    line=metadata_key_lines.get("title", 1),
                     address=manifest_address,
                 )
             )
         kind = FileKind.MANIFEST if not diagnostics else FileKind.INVALID
-        return RepositoryFile(relative_path, kind, metadata=metadata, diagnostics=diagnostics)
+        return RepositoryFile(
+            relative_path,
+            kind,
+            metadata=metadata,
+            diagnostics=diagnostics,
+            entity_line=entity_line,
+        )
 
     entity_id = metadata.get("id")
     has_entity_id = isinstance(entity_id, str) and bool(ENTITY_ID_RE.fullmatch(entity_id))
@@ -487,6 +619,7 @@ def _classify_yaml(path: Path, relative_path: str) -> RepositoryFile:
             FileKind.UNSUPPORTED,
             metadata=metadata,
             diagnostics=[diagnostic],
+            entity_line=entity_line,
         )
 
     return RepositoryFile(relative_path, FileKind.SUPPORT, metadata=metadata)
@@ -523,3 +656,117 @@ def load_repository(root: str | Path) -> Repository:
         for path in paths
     ]
     return Repository(root_path, files)
+
+
+def _duplicate_diagnostics(
+    code: str,
+    identity_label: str,
+    declarations: dict[str, tuple[EntityDeclaration, ...]] | dict[str, tuple[ClaimDeclaration, ...]],
+    *,
+    across_files_only: bool = False,
+) -> list[RepositoryDiagnostic]:
+    diagnostics: list[RepositoryDiagnostic] = []
+    for identity in sorted(declarations):
+        conflicts = declarations[identity]
+        if len(conflicts) < 2 or (
+            across_files_only and len({item.path for item in conflicts}) < 2
+        ):
+            continue
+        for declaration in conflicts:
+            others = [
+                f"{other.path}:{other.line}"
+                for other in conflicts
+                if other is not declaration
+            ]
+            diagnostics.append(
+                _diagnostic(
+                    declaration.path,
+                    code,
+                    f"duplicate {identity_label} {identity}; also declared at {', '.join(others)}",
+                    line=declaration.line,
+                    address=identity,
+                )
+            )
+    return diagnostics
+
+
+def build_repository_index(repository: Repository) -> RepositoryIndex:
+    entity_buckets: dict[str, list[EntityDeclaration]] = {}
+    claim_buckets: dict[str, list[ClaimDeclaration]] = {}
+    entities_by_file: dict[str, EntityDeclaration] = {}
+
+    for item in repository.files:
+        entity_id = item.entity_id
+        if (
+            item.kind != FileKind.SUPPORT
+            and entity_id is not None
+            and ENTITY_ID_RE.fullmatch(entity_id)
+        ):
+            entity_type_value = item.metadata.get("type")
+            declaration = EntityDeclaration(
+                entity_id=entity_id,
+                entity_type=entity_type_value if isinstance(entity_type_value, str) else None,
+                path=item.path,
+                line=item.entity_line or 1,
+                kind=item.kind,
+                repository_file=item,
+            )
+            entity_buckets.setdefault(entity_id, []).append(declaration)
+            entities_by_file[item.path] = declaration
+
+        if item.document is None:
+            continue
+        for claim in item.document.claims:
+            address = f"{item.document.id}#{claim.id}"
+            declaration = ClaimDeclaration(
+                address=address,
+                entity_id=item.document.id,
+                local_id=claim.id,
+                path=item.path,
+                line=claim.line,
+                claim=claim,
+            )
+            claim_buckets.setdefault(address, []).append(declaration)
+
+    entity_declarations = {
+        entity_id: tuple(sorted(items, key=lambda item: (item.path, item.line)))
+        for entity_id, items in sorted(entity_buckets.items())
+    }
+    claim_declarations = {
+        address: tuple(sorted(items, key=lambda item: (item.path, item.line)))
+        for address, items in sorted(claim_buckets.items())
+    }
+    entities_by_id = {
+        entity_id: items[0]
+        for entity_id, items in entity_declarations.items()
+        if len(items) == 1
+    }
+    claims_by_address = {
+        address: items[0]
+        for address, items in claim_declarations.items()
+        if len(items) == 1
+    }
+    diagnostics = _duplicate_diagnostics(
+        "entity.duplicate",
+        "entity ID",
+        entity_declarations,
+    )
+    diagnostics.extend(
+        _duplicate_diagnostics(
+            "claim.duplicate",
+            "Claim address",
+            claim_declarations,
+            across_files_only=True,
+        )
+    )
+    diagnostics.sort(key=lambda item: (item.path, item.line, item.code, item.address or ""))
+
+    return RepositoryIndex(
+        root=repository.root,
+        entity_declarations=entity_declarations,
+        claim_declarations=claim_declarations,
+        entities_by_id=entities_by_id,
+        claims_by_address=claims_by_address,
+        entities_by_file=dict(sorted(entities_by_file.items())),
+        diagnostics=diagnostics,
+    )
