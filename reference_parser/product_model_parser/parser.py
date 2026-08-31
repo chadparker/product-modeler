@@ -173,6 +173,7 @@ class Document:
     context: str | None
     claims: list[Claim]
     relationships: list[Relationship]
+    metadata_lines: dict[str, int] = field(default_factory=dict)
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
     @property
@@ -191,6 +192,7 @@ class Document:
             "context": self.context,
             "claims": [asdict(item) for item in self.claims],
             "relationships": [asdict(item) for item in self.relationships],
+            "metadataLines": self.metadata_lines,
             "diagnostics": [asdict(item) for item in self.diagnostics],
             "valid": self.valid,
         }
@@ -233,11 +235,13 @@ def _validate_yaml_shape(value: Any, *, source: str, line: int, path: str = "YAM
         raise DPlusError(f"{path} contains unsupported value type {type(value).__name__}", source=source, line=line)
 
 
-def _yaml_mapping(text: str, *, source: str, line: int) -> dict[str, Any]:
+def parse_yaml_mapping(text: str, *, source: str, line: int) -> dict[str, Any]:
     if not text.strip():
         return {}
     try:
         value = yaml.load(text, Loader=StrictLoader)
+    except (RecursionError, ValueError, OverflowError) as exc:
+        raise DPlusError("YAML scalar or nesting exceeds the supported limits", source=source, line=line) from exc
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None) or getattr(exc, "context_mark", None)
         error_line = line + mark.line if mark is not None else line
@@ -248,6 +252,29 @@ def _yaml_mapping(text: str, *, source: str, line: int) -> dict[str, Any]:
         raise DPlusError("YAML content must be a mapping", source=source, line=line)
     _validate_yaml_shape(value, source=source, line=line)
     return value
+
+
+def yaml_mapping_key_lines(text: str, *, source: str, line: int) -> dict[str, int]:
+    try:
+        node = yaml.compose(text, Loader=StrictLoader)
+    except RecursionError as exc:
+        raise DPlusError("YAML nesting exceeds the supported depth", source=source, line=line) from exc
+    if not isinstance(node, yaml.MappingNode):
+        return {}
+
+    result: dict[str, int] = {}
+    stack: list[tuple[yaml.MappingNode, str]] = [(node, "")]
+    while stack:
+        mapping, prefix = stack.pop()
+        for key_node, value_node in mapping.value:
+            if not isinstance(key_node, yaml.ScalarNode):
+                continue
+            key = str(key_node.value)
+            path = f"{prefix}.{key}" if prefix else key
+            result[path] = line + key_node.start_mark.line
+            if isinstance(value_node, yaml.MappingNode):
+                stack.append((value_node, path))
+    return result
 
 
 def _fence_open(line: str) -> tuple[str, int, str] | None:
@@ -389,7 +416,7 @@ def _extract_claim(
                 line=heading_line + 1 + fence.end,
             )
         metadata_text = "\n".join(block[fence.start + 1 : fence.end])
-        metadata = _yaml_mapping(
+        metadata = parse_yaml_mapping(
             metadata_text,
             source=source,
             line=heading_line + 2 + fence.start,
@@ -450,7 +477,7 @@ def _extract_relationship(
             line=heading_line,
         )
     metadata_text = "\n".join(block[fence.start + 1 : fence.end])
-    metadata = _yaml_mapping(
+    metadata = parse_yaml_mapping(
         metadata_text,
         source=source,
         line=heading_line + 2 + fence.start,
@@ -660,6 +687,10 @@ def _validate_reference(
         )
 
 
+def _metadata_line(document: Document, path: str, fallback: str | None = None) -> int:
+    return document.metadata_lines.get(path, document.metadata_lines.get(fallback or "", 2))
+
+
 def _validate(document: Document) -> None:
     diagnostics = document.diagnostics
     if "parent" in document.metadata:
@@ -668,12 +699,20 @@ def _validate(document: Document) -> None:
             field_name="parent",
             address=document.id,
             diagnostics=diagnostics,
-            line=1,
+            line=_metadata_line(document, "parent"),
         )
     if "defaults" not in document.metadata:
         defaults: dict[str, Any] = {}
     elif not isinstance(document.metadata["defaults"], dict):
-        diagnostics.append(Diagnostic("error", "defaults.type", "defaults must be a mapping"))
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "defaults.type",
+                "defaults must be a mapping",
+                _metadata_line(document, "defaults"),
+                document.id,
+            )
+        )
         defaults = {}
     else:
         defaults = document.metadata["defaults"]
@@ -683,7 +722,7 @@ def _validate(document: Document) -> None:
             defaults["review"],
             address=document.id,
             diagnostics=diagnostics,
-            line=1,
+            line=_metadata_line(document, "defaults.review", "defaults"),
         )
         if "review" in defaults
         else {}
@@ -694,7 +733,7 @@ def _validate(document: Document) -> None:
                 "error",
                 "review.digest-default",
                 "review.contentDigest cannot be inherited from entity defaults",
-                1,
+                _metadata_line(document, "defaults.review.contentDigest", "defaults.review"),
                 document.id,
             )
         )
@@ -705,7 +744,7 @@ def _validate(document: Document) -> None:
                 "error",
                 "review.confirmed-default",
                 "confirmed review state cannot be inherited; confirm each Claim with a content digest",
-                1,
+                _metadata_line(document, "defaults.review.state", "defaults.review"),
                 document.id,
             )
         )
@@ -713,7 +752,15 @@ def _validate(document: Document) -> None:
     if "provenance" not in defaults:
         default_provenance: dict[str, Any] = {}
     elif not isinstance(defaults["provenance"], dict):
-        diagnostics.append(Diagnostic("error", "provenance.type", "defaults.provenance must be a mapping"))
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "provenance.type",
+                "defaults.provenance must be a mapping",
+                _metadata_line(document, "defaults.provenance", "defaults"),
+                document.id,
+            )
+        )
         default_provenance = {}
     else:
         default_provenance = defaults["provenance"]
@@ -723,7 +770,7 @@ def _validate(document: Document) -> None:
             field_name="defaults.provenance.basedOn",
             address=document.id,
             diagnostics=diagnostics,
-            line=1,
+            line=_metadata_line(document, "defaults.provenance.basedOn", "defaults.provenance"),
         )
         if "basedOn" in default_provenance
         else []
@@ -734,7 +781,7 @@ def _validate(document: Document) -> None:
             field_name="defaults.provenance.basedOn",
             address=document.id,
             diagnostics=diagnostics,
-            line=1,
+            line=_metadata_line(document, "defaults.provenance.basedOn", "defaults.provenance"),
         )
 
     local_ids: set[str] = set()
@@ -878,7 +925,9 @@ def parse_text(text: str, *, source: str = "<string>") -> Document:
     except ValueError as exc:
         raise DPlusError("unterminated YAML frontmatter", source=source, line=1) from exc
 
-    metadata = _yaml_mapping("\n".join(lines[1:closing]), source=source, line=2)
+    frontmatter_text = "\n".join(lines[1:closing])
+    metadata = parse_yaml_mapping(frontmatter_text, source=source, line=2)
+    metadata_lines = yaml_mapping_key_lines(frontmatter_text, source=source, line=2)
     required = {"formatVersion", "id", "type"}
     missing = sorted(required - set(metadata))
     if missing:
@@ -887,14 +936,26 @@ def parse_text(text: str, *, source: str = "<string>") -> Document:
         raise DPlusError(
             f"unsupported formatVersion {metadata.get('formatVersion')!r}",
             source=source,
-            line=2,
+            line=metadata_lines.get("formatVersion", 2),
         )
     if not isinstance(metadata.get("id"), str) or not ENTITY_ID_RE.fullmatch(metadata["id"]):
-        raise DPlusError(f"invalid entity ID {metadata.get('id')!r}", source=source, line=2)
+        raise DPlusError(
+            f"invalid entity ID {metadata.get('id')!r}",
+            source=source,
+            line=metadata_lines.get("id", 2),
+        )
     if not isinstance(metadata.get("type"), str) or not metadata["type"]:
-        raise DPlusError("type must be a non-empty string", source=source, line=2)
+        raise DPlusError(
+            "type must be a non-empty string",
+            source=source,
+            line=metadata_lines.get("type", 2),
+        )
     if "title" in metadata:
-        raise DPlusError("title belongs in the single H1, not frontmatter", source=source, line=2)
+        raise DPlusError(
+            "title belongs in the single H1, not frontmatter",
+            source=source,
+            line=metadata_lines.get("title", 2),
+        )
 
     body = lines[closing + 1 :]
     body_line_offset = closing + 2
@@ -991,6 +1052,7 @@ def parse_text(text: str, *, source: str = "<string>") -> Document:
         context=context,
         claims=claims,
         relationships=relationships,
+        metadata_lines=metadata_lines,
     )
     _validate(document)
     return document

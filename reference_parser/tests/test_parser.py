@@ -642,6 +642,39 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(parsed.valid)
         self.assertNotIn("contentDigest", parsed.claims[0].effective_review)
 
+    def test_frontmatter_diagnostics_preserve_nested_key_lines(self) -> None:
+        parsed = parse_text(
+            document(
+                "## Context\n\nNothing.",
+                """
+                formatVersion: "0.1"
+                id: CAP-030
+                type: capability
+                parent: invalid
+                defaults:
+                  review:
+                    state: confirmed
+                  provenance:
+                    basedOn:
+                      - invalid
+                """,
+            )
+        )
+        diagnostics = {item.code: item for item in parsed.diagnostics if item.code != "reference.format"}
+        parent_references = [
+            item
+            for item in parsed.diagnostics
+            if item.code == "reference.format" and item.message.startswith("parent")
+        ]
+        self.assertEqual(parent_references[0].line, 5)
+        self.assertEqual(diagnostics["review.confirmed-default"].line, 8)
+        provenance_references = [
+            item
+            for item in parsed.diagnostics
+            if item.code == "reference.format" and "basedOn" in item.message
+        ]
+        self.assertEqual(provenance_references[0].line, 10)
+
     def test_unknown_h2_section_is_rejected(self) -> None:
         with self.assertRaisesRegex(DPlusError, "unsupported level-two section"):
             parse_text(document("## Requirements\n\nSomething."))

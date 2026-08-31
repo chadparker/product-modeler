@@ -10,10 +10,10 @@ Product Modeler is in discovery and format-prototyping. The repository contains:
 - a dogfood Product Model under `model/`;
 - accepted architectural decisions under `docs/adr/`;
 - the accepted D+ Markdown-first Claim profile in `format/DPLUS.md`;
-- a Python D+ reference parser, validator, CLI, and 31 conformance tests under `reference_parser/`;
+- a Python D+ reference parser, repository file classifier, CLI, and 54 tests under `reference_parser/`;
 - preserved syntax experiments and blind-review results under `format/experiments/claim-syntax/`.
 
-The D+ parser currently validates one Claim-bearing document at a time. It does not yet understand a whole Product Model repository or resolve references across files.
+The repository layer now discovers files recursively and classifies D+ documents, the product manifest, legacy entities, support files, unsupported versions, and invalid files. It preserves file/line diagnostics and exposes deterministic JSON through `product-model-parse inspect`. It does not yet construct cross-file indexes or resolve references.
 
 ## Accepted foundation
 
@@ -33,6 +33,20 @@ See `CONTEXT.md`, `docs/product-brief.md`, and `docs/adr/` for the authoritative
 ## Next milestone: repository loader, index, and validator
 
 Build the deterministic substrate that loads an entire Product Model directory and produces a validated graph. Do this before UI, chat, or AI analysis work.
+
+### Milestone progress
+
+Completed:
+
+- deterministic recursive discovery, excluding hidden paths;
+- UTF-8 and strict-YAML loading;
+- classification of D+, manifest, legacy, support, unsupported, and invalid files;
+- preservation of file and line diagnostics;
+- deterministic JSON serialization;
+- `product-model-parse inspect model/ [--json]`;
+- dogfood classification: 1 manifest, 30 legacy entities, and 3 support files.
+
+Next implementation task: construct entity and Claim indexes and diagnose duplicate IDs. Reference resolution and graph construction follow.
 
 ### Proposed Python modules
 
@@ -148,8 +162,9 @@ Do not migrate every file until this slice validates cleanly and reads well with
 5. The migrated vertical slice parses and resolves across files.
 6. `graph --json` emits deterministic output usable by a future UI.
 7. Tests cover discovery, mixed formats, duplicate IDs, missing targets, cycles, stale Claims, and deterministic graph output.
-8. Existing 31 D+ document tests continue to pass.
-9. The CLI installs and runs in a clean virtual environment.
+8. Existing D+ document tests continue to pass.
+9. The complete parser and repository suite passes.
+10. The CLI installs and runs in a clean virtual environment.
 
 ## Explicit non-goals for this milestone
 
@@ -199,8 +214,9 @@ Then run:
 git status --short
 git log --oneline -8
 PYTHONPATH=reference_parser python3 -m unittest discover -s reference_parser/tests -q
+PYTHONPATH=reference_parser python3 -m product_model_parser inspect model/
 PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The first implementation task is repository discovery and file classification, with tests before graph construction.
+The next implementation task is entity and Claim indexing with deterministic duplicate-ID diagnostics.
