@@ -7,7 +7,7 @@ Updated: 2026-09-01
 Product Modeler is in discovery and format-prototyping. The repository contains:
 
 - a product brief, domain glossary, analysis method, and golden-path scenario;
-- a mixed-format dogfood Product Model under `model/`, including a representative eight-entity D+ vertical slice;
+- a fully migrated D+ dogfood Product Model under `model/`;
 - accepted architectural decisions under `docs/adr/`;
 - the accepted D+ Markdown-first Claim profile in `format/DPLUS.md`;
 - a Python D+ reference parser, repository indexer, validator and graph CLI, and 101 tests under `reference_parser/`;
@@ -67,11 +67,11 @@ Completed:
 - renderer-independent projection of unambiguous entities and every syntactically valid reference;
 - deterministic collision-free projection edge IDs and combined diagnostics;
 - `product-model-parse graph model/ [--json]` with error/warning exit semantics;
-- dogfood projection after representative migration: product `PROD-001`, Core Capability `CAP-001`, 31 nodes, 143 edges, 34 Claims, and 22 legacy warnings;
-- representative D+ vertical slice covering `CAP-001`, `CAP-020`, `CAP-030`, `SUB-020`, `SUB-030`, `SUB-040`, `JRN-001`, and `UI-001`;
-- stable local Claim and relationship IDs, inherited `SRC-001` provenance, confirmed Claim digests, and mixed proposed/provisional/questioned Interface review states.
+- dogfood projection after full migration: product `PROD-001`, Core Capability `CAP-001`, 31 nodes, 255 resolved edges, 114 Claims, and no diagnostics;
+- all 30 claim-bearing dogfood entities migrated to D+ while preserving the manifest, three support files, IDs, hierarchy, and legacy relationship semantics;
+- 170 inherited provenance edges to `SRC-001`, valid confirmed Claim digests, and proposed/provisional/questioned states for unresolved or unconfirmed material.
 
-Next implementation task: complete the remaining dogfood migration to D+, preserving graph semantics and applying lessons from the validated representative slice before UI work begins.
+Next implementation task: build the first read-only Capability hierarchy and dependency viewer from the stable graph JSON projection.
 
 ### Completed task specification: stable graph JSON projection
 
@@ -380,7 +380,7 @@ Use the migration to test:
 - cross-file reference resolution;
 - graph projection readability.
 
-The representative slice now validates cleanly and reads well without tooling. The remaining 22 legacy entity files may now be migrated incrementally using the same Claim, relationship, provenance, review, and digest conventions.
+The representative slice validated the conventions, and the remaining 22 legacy entities were then migrated. The dogfood repository is now fully D+ except for its YAML manifest and intentional support files.
 
 ## Acceptance criteria for the milestone
 
@@ -407,14 +407,13 @@ The representative slice now validates cleanly and reads well without tooling. T
 
 ## Work after this milestone
 
-1. Complete the remaining dogfood migration.
-2. Build a read-only Capability tree and dependency viewer from graph JSON.
-3. Add entity and Claim inspection.
-4. Add file-backed edits and Mutation Transactions.
-5. Add adjacent clarification chat.
-6. Implement prose-spec analysis.
-7. Implement source-code prototype analysis.
-8. Test external coding-agent handoff.
+1. Build a read-only Capability tree and dependency viewer from graph JSON.
+2. Add entity and Claim inspection.
+3. Add file-backed edits and Mutation Transactions.
+4. Add adjacent clarification chat.
+5. Implement prose-spec analysis.
+6. Implement source-code prototype analysis.
+7. Test external coding-agent handoff.
 
 ## Open design questions
 
@@ -450,4 +449,4 @@ PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is completing the remaining dogfood migration from 22 legacy entities to D+. Preserve IDs and graph semantics, use stable local Claim/relationship IDs, and keep each incremental batch valid. Do not begin rendering or UI work in the same change.
+The next implementation task is the first read-only explorer consuming the stable graph JSON: render the Capability hierarchy rooted at `CAP-001`, expose cross-tree dependency links, and keep the UI independent of authoritative model storage. Define the UI boundary and technology choice before implementation; editing, chat, and mutation application remain deferred.
