@@ -10,10 +10,10 @@ Product Modeler is in discovery and format-prototyping. The repository contains:
 - a dogfood Product Model under `model/`;
 - accepted architectural decisions under `docs/adr/`;
 - the accepted D+ Markdown-first Claim profile in `format/DPLUS.md`;
-- a Python D+ reference parser, repository indexer, validator CLI, and 93 tests under `reference_parser/`;
+- a Python D+ reference parser, repository indexer, validator and graph CLI, and 101 tests under `reference_parser/`;
 - preserved syntax experiments and blind-review results under `format/experiments/claim-syntax/`.
 
-The repository layer now discovers and classifies files, constructs deterministic entity, Claim, and reference indexes, rejects ambiguous duplicate identities, resolves D+ and legacy cross-file references, validates the product root and Capability hierarchy, detects structural and dependency cycles, and preserves source diagnostics. `product-model-parse inspect` exposes repository inventory; `product-model-parse validate` combines file, document, identity, hierarchy, reference, and cycle diagnostics. Deterministic graph projection is not yet implemented.
+The repository layer now discovers and classifies files, constructs deterministic entity, Claim, and reference indexes, rejects ambiguous duplicate identities, resolves D+ and legacy cross-file references, validates the product root and Capability hierarchy, detects structural and dependency cycles, and emits a stable graph JSON projection with partial-invalid behavior and source diagnostics. `product-model-parse inspect` exposes repository inventory; `validate` combines validation diagnostics; `graph` emits renderer-independent nodes, edges, and diagnostics.
 
 ## Accepted foundation
 
@@ -61,11 +61,17 @@ Completed:
 - deterministic Capability parent-cycle and disconnected-branch errors;
 - deterministic dependency-cycle warnings, including self-cycles and multi-cycle components;
 - iterative graph traversal that handles deep acyclic models without recursion failures;
-- dogfood graph validation: one Core Capability, no hierarchy cycles, and no dependency cycles.
+- dogfood graph validation: one Core Capability, no hierarchy cycles, and no dependency cycles;
+- immutable graph node, edge, and projection records plus a pure projection builder;
+- schema-versioned, deterministic, JSON-safe graph output with partial-invalid semantics;
+- renderer-independent projection of unambiguous entities and every syntactically valid reference;
+- deterministic collision-free projection edge IDs and combined diagnostics;
+- `product-model-parse graph model/ [--json]` with error/warning exit semantics;
+- dogfood projection: product `PROD-001`, Core Capability `CAP-001`, 31 nodes, 79 edges, and 30 legacy warnings.
 
-Next implementation task: emit the stable graph JSON projection for future UI and agent consumers.
+Next implementation task: migrate the representative dogfood vertical slice to D+ and evaluate the graph projection against mixed legacy/D+ content.
 
-### Next task specification: stable graph JSON projection
+### Completed task specification: stable graph JSON projection
 
 Implement this bounded slice after validation and before any UI work.
 
@@ -176,7 +182,7 @@ Add tests for:
 10. dogfood output containing 31 nodes, 79 edges, product `PROD-001`, Core Capability `CAP-001`, and no errors;
 11. installation and `graph` execution in a clean virtual environment.
 
-All existing 93 tests must continue to pass.
+All existing 101 tests must continue to pass.
 
 #### Explicitly deferred
 
@@ -267,11 +273,7 @@ All existing parser and repository tests must continue to pass.
 
 #### Deferred beyond identity indexing
 
-The following were deferred from the identity-indexing change. Cross-file target, parent, and provenance/source resolution is now complete. Still deferred:
-
-- graph JSON.
-
-This belongs to the graph-projection slice.
+The following were deferred from the identity-indexing change and are now complete: cross-file target resolution, parent/provenance/source resolution, graph validation, and stable graph JSON projection.
 
 ### Proposed Python modules
 
@@ -446,4 +448,4 @@ PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is the bounded stable graph JSON projection specified above. Build projection records, deterministic node/edge output, partial-invalid behavior, combined diagnostics, and the `graph` CLI. Do not begin rendering, UI work, or dogfood migration in the same change.
+The next implementation task is the representative D+ dogfood migration described above. Use the stable graph projection to verify mixed-format nodes, edges, review summaries, provenance, and diagnostics. Do not begin rendering or UI work in the same change.

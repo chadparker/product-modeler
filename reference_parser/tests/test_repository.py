@@ -17,6 +17,7 @@ from product_model_parser.repository import (
     ReferenceResolution,
     _dependency_cycle_for_edge,
     _functional_graph_cycles,
+    build_graph_projection,
     build_repository_index,
     load_repository,
     validate_repository_graph,
@@ -1531,6 +1532,320 @@ class RepositoryGraphValidationTests(unittest.TestCase):
         self.assertEqual(validation.capability_cycles, ())
         self.assertEqual(validation.dependency_cycles, ())
         self.assertFalse(validation.has_errors, validation.diagnostics)
+
+
+class RepositoryGraphProjectionTests(unittest.TestCase):
+    def _write_manifest(self, root: Path, *, source: str | None = None) -> None:
+        sources = f"sources:\n  - {source}\n" if source else ""
+        write(
+            root / "product.yaml",
+            "formatVersion: \"0.1\"\n"
+            "id: PROD-001\n"
+            "type: product\n"
+            "title: Example Product\n"
+            "status: confirmed\n"
+            "coreCapability: CAP-001\n"
+            f"{sources}",
+        )
+
+    def _write_legacy(
+        self,
+        root: Path,
+        path: str,
+        entity_id: str,
+        entity_type: str,
+        lines: tuple[str, ...] = (),
+    ) -> None:
+        extra = "\n".join(lines)
+        write(
+            root / path,
+            "---\n"
+            f"id: {entity_id}\n"
+            f"type: {entity_type}\n"
+            f"{extra}\n"
+            "---\n\n"
+            f"# {entity_id}\n",
+        )
+
+    def _project(self, root: Path):
+        repository = load_repository(root)
+        index = build_repository_index(repository)
+        validation = validate_repository_graph(repository, index)
+        return repository, index, validation, build_graph_projection(repository, index, validation)
+
+    def test_projects_mixed_nodes_with_review_counts_and_all_edge_kinds(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root, source="SRC-001")
+            self._write_legacy(root, "SRC-001.md", "SRC-001", "source", ("title: Evidence",))
+            self._write_legacy(
+                root,
+                "CAP-001.md",
+                "CAP-001",
+                "capability",
+                (
+                    "title: Root Capability",
+                    "parent: null",
+                    "status: confirmed",
+                    "provenance:",
+                    "  - source: SRC-001",
+                ),
+            )
+            write(
+                root / "CAP-002.md",
+                """
+                ---
+                formatVersion: "0.1"
+                id: CAP-002
+                type: capability
+                parent: CAP-001
+                defaults:
+                  review:
+                    state: provisional
+                  provenance:
+                    basedOn:
+                      - SRC-001
+                ---
+
+                # Child Capability
+
+                ## Claims
+
+                ### C1
+
+                An inherited provisional Claim.
+
+                ### C2
+
+                A questioned Claim.
+
+                ```product-claim
+                review:
+                  state: questioned
+                ```
+
+                ## Relationships
+
+                ### R1
+
+                ```product-relationship
+                type: requires
+                target: CAP-001
+                ```
+                """,
+            )
+
+            _, _, _, projection = self._project(root)
+            nodes = {node.entity_id: node for node in projection.nodes}
+
+            self.assertEqual([node.entity_id for node in projection.nodes], sorted(nodes))
+            self.assertEqual(projection.product, "PROD-001")
+            self.assertEqual(projection.core_capability, "CAP-001")
+            self.assertTrue(projection.valid, projection.diagnostics)
+            self.assertEqual(nodes["PROD-001"].kind, FileKind.MANIFEST)
+            self.assertEqual(nodes["PROD-001"].title, "Example Product")
+            self.assertEqual(nodes["CAP-001"].status, "confirmed")
+            self.assertEqual(nodes["CAP-002"].kind, FileKind.DPLUS)
+            self.assertEqual(nodes["CAP-002"].title, "Child Capability")
+            self.assertEqual(nodes["CAP-002"].parent, "CAP-001")
+            self.assertEqual(nodes["CAP-002"].claim_count, 2)
+            self.assertEqual(nodes["CAP-002"].relationship_count, 1)
+            self.assertEqual(
+                dict(nodes["CAP-002"].claim_review_summary),
+                {"provisional": 1, "questioned": 1},
+            )
+            self.assertTrue(all(node.usable for node in projection.nodes))
+            self.assertEqual(
+                {edge.kind for edge in projection.edges},
+                {
+                    ReferenceKind.CORE_CAPABILITY,
+                    ReferenceKind.PARENT,
+                    ReferenceKind.RELATIONSHIP,
+                    ReferenceKind.PROVENANCE,
+                    ReferenceKind.SOURCE,
+                },
+            )
+            relationship = next(
+                edge
+                for edge in projection.edges
+                if edge.kind == ReferenceKind.RELATIONSHIP
+                and edge.source_address == "CAP-002#R1"
+            )
+            self.assertEqual(relationship.edge_id, "relationship:CAP-002#R1")
+            self.assertEqual(relationship.relationship_type, "requires")
+            self.assertEqual(relationship.resolution, ReferenceResolution.RESOLVED)
+
+    def test_retains_unresolved_edges_and_omits_duplicate_nodes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_legacy(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_legacy(root, "a.md", "SUB-100", "subsystem")
+            self._write_legacy(root, "b.md", "SUB-100", "subsystem")
+            write(
+                root / "future.md",
+                """
+                ---
+                formatVersion: "9.0"
+                id: CAP-900
+                type: capability
+                ---
+
+                # Future
+                """,
+            )
+            self._write_legacy(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                (
+                    "relations:",
+                    "  missing: SUB-999",
+                    "  ambiguous: SUB-100",
+                    "  unavailable: CAP-900",
+                ),
+            )
+
+            _, _, _, projection = self._project(root)
+            resolutions = {edge.target_id: edge.resolution for edge in projection.edges}
+            node_ids = {node.entity_id for node in projection.nodes}
+
+            self.assertEqual(resolutions["SUB-999"], ReferenceResolution.MISSING)
+            self.assertEqual(resolutions["SUB-100"], ReferenceResolution.AMBIGUOUS)
+            self.assertEqual(resolutions["CAP-900"], ReferenceResolution.UNAVAILABLE)
+            self.assertNotIn("SUB-100", node_ids)
+            self.assertIn("CAP-900", node_ids)
+            unavailable = next(node for node in projection.nodes if node.entity_id == "CAP-900")
+            self.assertFalse(unavailable.usable)
+            self.assertFalse(projection.valid)
+
+    def test_malformed_reference_is_only_a_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_legacy(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_legacy(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                ("relations:", "  requires: not-an-id"),
+            )
+
+            _, _, _, projection = self._project(root)
+
+            self.assertIn("reference.syntax", [item.code for item in projection.diagnostics])
+            self.assertNotIn("not-an-id", [edge.target_id for edge in projection.edges])
+
+    def test_projection_serialization_and_generated_edge_ids_are_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_legacy(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_legacy(root, "SUB-002.md", "SUB-002", "subsystem")
+            self._write_legacy(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-002", "    - SUB-002"),
+            )
+
+            first = self._project(root)[3].to_dict()
+            second = self._project(root)[3].to_dict()
+
+            self.assertEqual(first, second)
+            edge_ids = [edge["id"] for edge in first["edges"]]
+            nodes = {node["id"]: node for node in first["nodes"]}
+            self.assertEqual(nodes["SUB-001"]["relationshipCount"], 2)
+            self.assertEqual(len(edge_ids), len(set(edge_ids)))
+            self.assertIn("relationship:SUB-001:requires:SUB-002:1", edge_ids)
+            self.assertIn("relationship:SUB-001:requires:SUB-002:2", edge_ids)
+            json.dumps(first)
+
+    def test_graph_cli_emits_partial_json_and_error_status(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_legacy(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = main(["graph", str(root), "--json"])
+
+            self.assertEqual(status, 1)
+            self.assertEqual(stderr.getvalue(), "")
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(payload["schemaVersion"], "0.1")
+            self.assertIsNone(payload["product"])
+            self.assertIsNone(payload["coreCapability"])
+            self.assertFalse(payload["valid"])
+            self.assertEqual([node["id"] for node in payload["nodes"]], ["CAP-001"])
+            self.assertIn("product.manifest-count", [item["code"] for item in payload["diagnostics"]])
+
+    def test_graph_cli_dependency_warnings_keep_projection_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_legacy(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_legacy(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                ("relations:", "  requires: SUB-002"),
+            )
+            self._write_legacy(
+                root,
+                "SUB-002.md",
+                "SUB-002",
+                "subsystem",
+                ("relations:", "  requires: SUB-001"),
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = main(["graph", str(root), "--json"])
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(status, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertTrue(payload["valid"])
+            warnings = [item for item in payload["diagnostics"] if item["code"] == "dependency.cycle"]
+            self.assertEqual(len(warnings), 2)
+            self.assertTrue(all(item["severity"] == "warning" for item in warnings))
+
+    def test_graph_cli_text_summary_prints_diagnostics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = main(["graph", str(root)])
+
+            self.assertEqual(status, 1)
+            self.assertIn("0 nodes, 0 edges, 1 diagnostics", stdout.getvalue())
+            self.assertIn("product.manifest-count", stderr.getvalue())
+
+    def test_current_dogfood_projection_is_stable_and_valid(self) -> None:
+        repository = load_repository(REPO_ROOT / "model")
+        index = build_repository_index(repository)
+        validation = validate_repository_graph(repository, index)
+        projection = build_graph_projection(repository, index, validation)
+
+        self.assertEqual(projection.product, "PROD-001")
+        self.assertEqual(projection.core_capability, "CAP-001")
+        self.assertEqual(len(projection.nodes), 31)
+        self.assertEqual(len(projection.edges), 79)
+        self.assertTrue(projection.valid, projection.diagnostics)
+        self.assertEqual(
+            {item.code for item in projection.diagnostics},
+            {"file.legacy"},
+        )
+        json.dumps(projection.to_dict())
 
 
 if __name__ == "__main__":

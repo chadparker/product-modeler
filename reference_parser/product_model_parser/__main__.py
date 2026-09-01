@@ -8,6 +8,7 @@ from pathlib import Path
 from .parser import DPlusError, parse_file
 from .repository import (
     RepositoryDiagnostic,
+    build_graph_projection,
     build_repository_index,
     load_repository,
     validate_repository_graph,
@@ -118,12 +119,46 @@ def _validate(argv: list[str]) -> int:
     return 1 if has_errors else 0
 
 
+def _graph(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="product-model-parse graph",
+        description="Project a Product Model repository as a stable graph",
+    )
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("--json", action="store_true", help="print the complete graph projection as JSON")
+    args = parser.parse_args(argv)
+
+    try:
+        repository = load_repository(args.directory)
+    except OSError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    index = build_repository_index(repository)
+    graph_validation = validate_repository_graph(repository, index)
+    projection = build_graph_projection(repository, index, graph_validation)
+
+    if args.json:
+        print(json.dumps(projection.to_dict(), indent=2, sort_keys=True))
+    else:
+        print(
+            f"{args.directory}: {len(projection.nodes)} nodes, {len(projection.edges)} edges, "
+            f"{len(projection.diagnostics)} diagnostics"
+        )
+        for diagnostic in projection.diagnostics:
+            _print_repository_diagnostic(diagnostic)
+
+    return 0 if projection.valid else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "inspect" and len(arguments) > 1:
         return _inspect(arguments[1:])
     if arguments and arguments[0] == "validate":
         return _validate(arguments[1:])
+    if arguments and arguments[0] == "graph":
+        return _graph(arguments[1:])
     if arguments and arguments[0] == "parse":
         arguments = arguments[1:]
 

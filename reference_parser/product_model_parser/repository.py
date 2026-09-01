@@ -266,6 +266,86 @@ class GraphValidation:
         }
 
 
+@dataclass(frozen=True)
+class GraphNode:
+    entity_id: str
+    entity_type: str | None
+    title: str | None
+    path: str
+    line: int
+    kind: FileKind
+    usable: bool
+    status: str | None
+    claim_count: int
+    relationship_count: int
+    claim_review_summary: tuple[tuple[str, int], ...]
+    parent: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.entity_id,
+            "type": self.entity_type,
+            "title": self.title,
+            "path": self.path,
+            "line": self.line,
+            "kind": self.kind.value,
+            "usable": self.usable,
+            "status": self.status,
+            "claimCount": self.claim_count,
+            "relationshipCount": self.relationship_count,
+            "claimReviewSummary": dict(self.claim_review_summary),
+            "parent": self.parent,
+        }
+
+
+@dataclass(frozen=True)
+class GraphEdge:
+    edge_id: str
+    kind: ReferenceKind
+    relationship_type: str | None
+    source_address: str
+    source_entity_id: str
+    target_id: str
+    resolution: ReferenceResolution
+    path: str
+    line: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.edge_id,
+            "kind": self.kind.value,
+            "relationshipType": self.relationship_type,
+            "source": self.source_address,
+            "sourceEntityId": self.source_entity_id,
+            "target": self.target_id,
+            "resolution": self.resolution.value,
+            "path": self.path,
+            "line": self.line,
+        }
+
+
+@dataclass(frozen=True)
+class GraphProjection:
+    product: str | None
+    core_capability: str | None
+    valid: bool
+    nodes: tuple[GraphNode, ...]
+    edges: tuple[GraphEdge, ...]
+    diagnostics: tuple[RepositoryDiagnostic, ...]
+    schema_version: str = "0.1"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schemaVersion": self.schema_version,
+            "product": self.product,
+            "coreCapability": self.core_capability,
+            "valid": self.valid,
+            "nodes": [node.to_dict() for node in self.nodes],
+            "edges": [edge.to_dict() for edge in self.edges],
+            "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
+        }
+
+
 @dataclass
 class Repository:
     root: Path
@@ -1529,5 +1609,131 @@ def validate_repository_graph(
         core_capability=core_capability,
         capability_cycles=capability_cycles,
         dependency_cycles=dependency_cycles,
+        diagnostics=diagnostics,
+    )
+
+
+def _graph_edge_base_id(reference: ReferenceDeclaration) -> str:
+    relationship_type = reference.relationship_type or ""
+    if reference.kind == ReferenceKind.CORE_CAPABILITY:
+        return f"core-capability:{reference.source_address}"
+    if reference.kind == ReferenceKind.PARENT:
+        return f"parent:{reference.source_entity_id}"
+    if reference.kind == ReferenceKind.RELATIONSHIP and "#" in reference.source_address:
+        return f"relationship:{reference.source_address}"
+    return ":".join(
+        (
+            reference.kind.value,
+            reference.source_address,
+            relationship_type,
+            reference.target_id,
+        )
+    )
+
+
+def build_graph_projection(
+    repository: Repository,
+    index: RepositoryIndex,
+    graph_validation: GraphValidation,
+) -> GraphProjection:
+    diagnostics = tuple(
+        sorted(
+            [*repository.diagnostics, *index.diagnostics, *graph_validation.diagnostics],
+            key=lambda item: (item.path, item.line, item.code, item.address or ""),
+        )
+    )
+
+    legacy_relationship_counts = Counter(
+        reference.source_entity_id
+        for reference in index.references
+        if reference.kind == ReferenceKind.RELATIONSHIP
+        and reference.source_address == reference.source_entity_id
+    )
+    nodes: list[GraphNode] = []
+    for entity_id, declaration in sorted(index.entities_by_id.items()):
+        item = declaration.repository_file
+        document = item.document
+        title_value = document.title if document is not None else item.metadata.get("title")
+        title = title_value if isinstance(title_value, str) else None
+        status_value = item.metadata.get("status")
+        status = status_value if isinstance(status_value, str) else None
+        review_counts: Counter[str] = Counter()
+        if document is not None:
+            for claim in document.claims:
+                state = claim.effective_review.get("state")
+                review_counts[state if isinstance(state, str) else "unspecified"] += 1
+        nodes.append(
+            GraphNode(
+                entity_id=entity_id,
+                entity_type=declaration.entity_type,
+                title=title,
+                path=declaration.path,
+                line=declaration.line,
+                kind=declaration.kind,
+                usable=declaration.kind not in {FileKind.INVALID, FileKind.UNSUPPORTED},
+                status=status,
+                claim_count=len(document.claims) if document is not None else 0,
+                relationship_count=(
+                    len(document.relationships)
+                    if document is not None
+                    else legacy_relationship_counts[entity_id]
+                ),
+                claim_review_summary=tuple(sorted(review_counts.items())),
+                parent=index.capability_parents.get(entity_id),
+            )
+        )
+
+    base_ids = [_graph_edge_base_id(reference) for reference in index.references]
+    base_counts = Counter(base_ids)
+    occurrences: Counter[str] = Counter()
+    edges: list[GraphEdge] = []
+    for reference, base_id in zip(index.references, base_ids):
+        occurrences[base_id] += 1
+        edge_id = (
+            base_id
+            if base_counts[base_id] == 1
+            else f"{base_id}:{occurrences[base_id]}"
+        )
+        edges.append(
+            GraphEdge(
+                edge_id=edge_id,
+                kind=reference.kind,
+                relationship_type=reference.relationship_type,
+                source_address=reference.source_address,
+                source_entity_id=reference.source_entity_id,
+                target_id=reference.target_id,
+                resolution=reference.resolution,
+                path=reference.path,
+                line=reference.line,
+            )
+        )
+    edges.sort(
+        key=lambda item: (
+            item.kind.value,
+            item.relationship_type or "",
+            item.source_address,
+            item.target_id,
+            item.path,
+            item.line,
+            item.edge_id,
+        )
+    )
+
+    product: str | None = None
+    if graph_validation.product_manifest is not None:
+        declaration = index.entities_by_file.get(graph_validation.product_manifest)
+        if (
+            declaration is not None
+            and declaration.entity_type == "product"
+            and index.entities_by_id.get(declaration.entity_id) is declaration
+        ):
+            product = declaration.entity_id
+
+    return GraphProjection(
+        product=product,
+        core_capability=graph_validation.core_capability,
+        valid=not any(item.severity == "error" for item in diagnostics),
+        nodes=tuple(nodes),
+        edges=tuple(edges),
         diagnostics=diagnostics,
     )

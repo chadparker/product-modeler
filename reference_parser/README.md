@@ -24,6 +24,8 @@ product-model-parse inspect model/
 product-model-parse inspect model/ --json
 product-model-parse validate model/
 product-model-parse validate model/ --json
+product-model-parse graph model/
+product-model-parse graph model/ --json
 ```
 
 The command exits nonzero for structural parse failures or validation errors.
@@ -36,4 +38,4 @@ PYTHONPATH=reference_parser python3 -m unittest discover -s reference_parser/tes
 
 ## Scope
 
-The parser validates individual D+ documents, discovers and classifies Product Model repositories, and builds deterministic entity, Claim, and cross-file reference indexes. Repository validation reports file/document errors, duplicate identities, missing or ambiguous targets, malformed references, invalid Capability parents, hierarchy cycles, disconnected branches, and dependency-cycle warnings while preserving source locations. Deterministic graph projection is the next layer.
+The parser validates individual D+ documents, discovers and classifies Product Model repositories, and builds deterministic entity, Claim, and cross-file reference indexes. Repository validation reports file/document errors, duplicate identities, missing or ambiguous targets, malformed references, invalid Capability parents, hierarchy cycles, disconnected branches, and dependency-cycle warnings while preserving source locations. The graph command emits a schema-versioned, renderer-independent projection with deterministic nodes, edges, diagnostics, and partial-invalid output.
