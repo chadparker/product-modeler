@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
@@ -237,6 +237,31 @@ class RepositoryIndex:
                 entity_id: list(children)
                 for entity_id, children in self.capability_children.items()
             },
+            "diagnostics": [item.to_dict() for item in self.diagnostics],
+        }
+
+
+@dataclass
+class GraphValidation:
+    root: Path
+    product_manifest: str | None
+    core_capability: str | None
+    capability_cycles: tuple[tuple[str, ...], ...]
+    dependency_cycles: tuple[tuple[str, ...], ...]
+    diagnostics: list[RepositoryDiagnostic] = field(default_factory=list)
+
+    @property
+    def has_errors(self) -> bool:
+        return any(item.severity == "error" for item in self.diagnostics)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "root": str(self.root),
+            "productManifest": self.product_manifest,
+            "coreCapability": self.core_capability,
+            "capabilityCycles": [list(cycle) for cycle in self.capability_cycles],
+            "dependencyCycles": [list(cycle) for cycle in self.dependency_cycles],
+            "hasErrors": self.has_errors,
             "diagnostics": [item.to_dict() for item in self.diagnostics],
         }
 
@@ -1246,5 +1271,263 @@ def build_repository_index(repository: Repository) -> RepositoryIndex:
         incoming_references=incoming_references,
         capability_parents=capability_parents,
         capability_children=capability_children,
+        diagnostics=diagnostics,
+    )
+
+
+def _rotate_cycle(cycle: list[str]) -> tuple[str, ...]:
+    nodes = cycle[:-1]
+    start = min(range(len(nodes)), key=lambda index: nodes[index])
+    rotated = nodes[start:] + nodes[:start]
+    return tuple([*rotated, rotated[0]])
+
+
+def _functional_graph_cycles(parents: dict[str, str]) -> tuple[tuple[str, ...], ...]:
+    processed: set[str] = set()
+    cycles: set[tuple[str, ...]] = set()
+
+    for start in sorted(parents):
+        if start in processed:
+            continue
+        path: list[str] = []
+        positions: dict[str, int] = {}
+        current = start
+        while current in parents and current not in processed and current not in positions:
+            positions[current] = len(path)
+            path.append(current)
+            current = parents[current]
+        if current in positions:
+            cycle = [*path[positions[current] :], current]
+            cycles.add(_rotate_cycle(cycle))
+        processed.update(path)
+    return tuple(sorted(cycles))
+
+
+def _dependency_cycle_for_edge(
+    source: str,
+    target: str,
+    adjacency: dict[str, tuple[str, ...]],
+) -> tuple[str, ...] | None:
+    if source == target:
+        return (source, source)
+
+    queue: deque[str] = deque([target])
+    predecessor: dict[str, str | None] = {target: None}
+    while queue:
+        node = queue.popleft()
+        for next_node in adjacency.get(node, ()):
+            if next_node in predecessor:
+                continue
+            predecessor[next_node] = node
+            if next_node == source:
+                path = [source]
+                current: str | None = source
+                while current is not None:
+                    current = predecessor[current]
+                    if current is not None:
+                        path.append(current)
+                path.reverse()
+                return _rotate_cycle([source, *path])
+            queue.append(next_node)
+    return None
+
+
+def validate_repository_graph(
+    repository: Repository,
+    index: RepositoryIndex,
+) -> GraphValidation:
+    diagnostics: list[RepositoryDiagnostic] = []
+    manifest_candidates = [
+        item
+        for item in repository.files
+        if PurePosixPath(item.path).name.lower() in {"product.yaml", "product.yml"}
+    ]
+    product_manifest: str | None = None
+    core_capability: str | None = None
+
+    if len(manifest_candidates) != 1:
+        if not manifest_candidates:
+            diagnostics.append(
+                _diagnostic(
+                    ".",
+                    "product.manifest-count",
+                    "repository must contain exactly one product.yaml or product.yml manifest; found 0",
+                )
+            )
+        else:
+            count = len(manifest_candidates)
+            for item in manifest_candidates:
+                diagnostics.append(
+                    _diagnostic(
+                        item.path,
+                        "product.manifest-count",
+                        f"repository must contain exactly one product manifest; found {count}",
+                        line=item.entity_line or 1,
+                        address=item.entity_id,
+                    )
+                )
+    else:
+        manifest = manifest_candidates[0]
+        product_manifest = manifest.path
+        core_value = manifest.metadata.get("coreCapability")
+        if not isinstance(core_value, str) or not ENTITY_ID_RE.fullmatch(core_value):
+            diagnostics.append(
+                _diagnostic(
+                    manifest.path,
+                    "product.core-capability-required",
+                    "product manifest must declare one valid coreCapability entity ID",
+                    line=_metadata_value_line(manifest, "coreCapability"),
+                    address=manifest.entity_id,
+                )
+            )
+        else:
+            core_reference = next(
+                (
+                    item
+                    for item in index.outgoing_references.get(manifest.entity_id or "", ())
+                    if item.kind == ReferenceKind.CORE_CAPABILITY
+                    and item.target_id == core_value
+                ),
+                None,
+            )
+            target = index.entities_by_id.get(core_value)
+            if (
+                core_reference is not None
+                and core_reference.resolution == ReferenceResolution.RESOLVED
+                and target is not None
+                and target.entity_type == "capability"
+            ):
+                core_capability = core_value
+
+    cycle_parent_map: dict[str, str] = {}
+    for reference in index.references:
+        if (
+            reference.kind != ReferenceKind.PARENT
+            or reference.resolution != ReferenceResolution.RESOLVED
+            or reference.source_entity_id not in index.entities_by_id
+            or reference.target_id not in index.entities_by_id
+            or index.entities_by_id[reference.source_entity_id].entity_type != "capability"
+            or index.entities_by_id[reference.target_id].entity_type != "capability"
+        ):
+            continue
+        cycle_parent_map[reference.source_entity_id] = reference.target_id
+    capability_cycles = _functional_graph_cycles(cycle_parent_map)
+    cycle_nodes = {node for cycle in capability_cycles for node in cycle[:-1]}
+    for cycle in capability_cycles:
+        description = " -> ".join(cycle)
+        for entity_id in cycle[:-1]:
+            reference = next(
+                (
+                    item
+                    for item in index.outgoing_references.get(entity_id, ())
+                    if item.kind == ReferenceKind.PARENT
+                    and item.target_id == cycle_parent_map.get(entity_id)
+                ),
+                None,
+            )
+            declaration = index.entities_by_id[entity_id]
+            diagnostics.append(
+                _diagnostic(
+                    reference.path if reference is not None else declaration.path,
+                    "capability.cycle",
+                    f"Capability parent cycle: {description}",
+                    line=reference.line if reference is not None else declaration.line,
+                    address=entity_id,
+                )
+            )
+
+    if core_capability is not None:
+        capabilities = sorted(
+            entity_id
+            for entity_id, declaration in index.entities_by_id.items()
+            if declaration.entity_type == "capability" and entity_id != core_capability
+        )
+        for entity_id in capabilities:
+            if entity_id in cycle_nodes:
+                continue
+            seen: set[str] = set()
+            current = entity_id
+            reaches_core = False
+            while current not in seen:
+                if current == core_capability:
+                    reaches_core = True
+                    break
+                seen.add(current)
+                parent = index.capability_parents.get(current)
+                if parent is None:
+                    break
+                current = parent
+            if reaches_core:
+                continue
+            declaration = index.entities_by_id[entity_id]
+            reference = next(
+                (
+                    item
+                    for item in index.outgoing_references.get(entity_id, ())
+                    if item.kind == ReferenceKind.PARENT
+                ),
+                None,
+            )
+            diagnostics.append(
+                _diagnostic(
+                    reference.path if reference is not None else declaration.path,
+                    "capability.disconnected",
+                    f"Capability does not reach Core Capability {core_capability}",
+                    line=reference.line if reference is not None else declaration.line,
+                    address=entity_id,
+                )
+            )
+
+    dependency_types = {"requires", "dependson", "depends-on"}
+    dependency_references = [
+        item
+        for item in index.references
+        if item.kind == ReferenceKind.RELATIONSHIP
+        and item.resolution == ReferenceResolution.RESOLVED
+        and isinstance(item.relationship_type, str)
+        and item.relationship_type.lower() in dependency_types
+        and item.source_entity_id in index.entities_by_id
+        and item.target_id in index.entities_by_id
+    ]
+    adjacency_buckets: dict[str, set[str]] = {}
+    for reference in dependency_references:
+        adjacency_buckets.setdefault(reference.source_entity_id, set()).add(reference.target_id)
+    adjacency = {
+        source: tuple(sorted(targets))
+        for source, targets in sorted(adjacency_buckets.items())
+    }
+    cycle_cache: dict[tuple[str, str], tuple[str, ...] | None] = {}
+    dependency_cycle_set: set[tuple[str, ...]] = set()
+    for reference in dependency_references:
+        edge = (reference.source_entity_id, reference.target_id)
+        if edge not in cycle_cache:
+            cycle_cache[edge] = _dependency_cycle_for_edge(
+                reference.source_entity_id,
+                reference.target_id,
+                adjacency,
+            )
+        cycle = cycle_cache[edge]
+        if cycle is None:
+            continue
+        dependency_cycle_set.add(cycle)
+        diagnostics.append(
+            _diagnostic(
+                reference.path,
+                "dependency.cycle",
+                f"dependency cycle: {' -> '.join(cycle)}",
+                line=reference.line,
+                severity="warning",
+                address=reference.source_address,
+            )
+        )
+    dependency_cycles = tuple(sorted(dependency_cycle_set))
+
+    diagnostics.sort(key=lambda item: (item.path, item.line, item.code, item.address or ""))
+    return GraphValidation(
+        root=repository.root,
+        product_manifest=product_manifest,
+        core_capability=core_capability,
+        capability_cycles=capability_cycles,
+        dependency_cycles=dependency_cycles,
         diagnostics=diagnostics,
     )

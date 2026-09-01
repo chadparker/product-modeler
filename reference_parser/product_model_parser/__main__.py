@@ -6,7 +6,12 @@ import sys
 from pathlib import Path
 
 from .parser import DPlusError, parse_file
-from .repository import RepositoryDiagnostic, build_repository_index, load_repository
+from .repository import (
+    RepositoryDiagnostic,
+    build_repository_index,
+    load_repository,
+    validate_repository_graph,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -81,8 +86,9 @@ def _validate(argv: list[str]) -> int:
         return 1
 
     index = build_repository_index(repository)
+    graph_validation = validate_repository_graph(repository, index)
     diagnostics = sorted(
-        [*repository.diagnostics, *index.diagnostics],
+        [*repository.diagnostics, *index.diagnostics, *graph_validation.diagnostics],
         key=lambda item: (item.path, item.line, item.code, item.address or ""),
     )
     has_errors = any(item.severity == "error" for item in diagnostics)
@@ -91,6 +97,7 @@ def _validate(argv: list[str]) -> int:
     if args.json:
         payload = {
             **index_payload,
+            "graphValidation": graph_validation.to_dict(),
             "repositoryCounts": repository.counts,
             "hasErrors": has_errors,
             "diagnostics": [item.to_dict() for item in diagnostics],
@@ -101,7 +108,9 @@ def _validate(argv: list[str]) -> int:
         print(
             f"{args.directory}: {counts['entityDeclarations']} entity declarations "
             f"({counts['uniqueEntities']} unique), {counts['claimDeclarations']} Claim declarations "
-            f"({counts['uniqueClaims']} unique), {counts['references']} references"
+            f"({counts['uniqueClaims']} unique), {counts['references']} references, "
+            f"{len(graph_validation.capability_cycles)} Capability cycles, "
+            f"{len(graph_validation.dependency_cycles)} dependency cycles"
         )
         for diagnostic in diagnostics:
             _print_repository_diagnostic(diagnostic)

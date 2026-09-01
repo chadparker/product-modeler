@@ -10,10 +10,10 @@ Product Modeler is in discovery and format-prototyping. The repository contains:
 - a dogfood Product Model under `model/`;
 - accepted architectural decisions under `docs/adr/`;
 - the accepted D+ Markdown-first Claim profile in `format/DPLUS.md`;
-- a Python D+ reference parser, repository indexer, validator CLI, and 82 tests under `reference_parser/`;
+- a Python D+ reference parser, repository indexer, validator CLI, and 93 tests under `reference_parser/`;
 - preserved syntax experiments and blind-review results under `format/experiments/claim-syntax/`.
 
-The repository layer now discovers and classifies files, constructs deterministic entity, Claim, and reference indexes, rejects ambiguous duplicate identities, resolves D+ and legacy cross-file references, and preserves source diagnostics. `product-model-parse inspect` exposes repository inventory; `product-model-parse validate` combines file, document, identity, hierarchy, and reference diagnostics. Cycle validation and graph projection are not yet implemented.
+The repository layer now discovers and classifies files, constructs deterministic entity, Claim, and reference indexes, rejects ambiguous duplicate identities, resolves D+ and legacy cross-file references, validates the product root and Capability hierarchy, detects structural and dependency cycles, and preserves source diagnostics. `product-model-parse inspect` exposes repository inventory; `product-model-parse validate` combines file, document, identity, hierarchy, reference, and cycle diagnostics. Deterministic graph projection is not yet implemented.
 
 ## Accepted foundation
 
@@ -56,9 +56,14 @@ Completed:
 - deterministic incoming and outgoing reference indexes;
 - resolved Capability parent and children indexes;
 - missing, ambiguous, unavailable, malformed, and wrong-type reference diagnostics;
-- dogfood reference resolution: 79 resolved references, 7 Capability parent links, and no errors.
+- dogfood reference resolution: 79 resolved references, 7 Capability parent links, and no errors;
+- exact product-manifest and Core Capability validation;
+- deterministic Capability parent-cycle and disconnected-branch errors;
+- deterministic dependency-cycle warnings, including self-cycles and multi-cycle components;
+- iterative graph traversal that handles deep acyclic models without recursion failures;
+- dogfood graph validation: one Core Capability, no hierarchy cycles, and no dependency cycles.
 
-Next implementation task: validate Core Capability cardinality and detect Capability hierarchy and dependency cycles. Deterministic graph JSON follows.
+Next implementation task: emit the stable graph JSON projection for future UI and agent consumers.
 
 ### Completed task specification: identity indexing
 
@@ -140,12 +145,9 @@ All existing parser and repository tests must continue to pass.
 
 The following were deferred from the identity-indexing change. Cross-file target, parent, and provenance/source resolution is now complete. Still deferred:
 
-- multiple or missing Core Capabilities;
-- Capability hierarchy cycles;
-- dependency cycles;
 - graph JSON.
 
-These belong to the graph-validation and projection slices.
+This belongs to the graph-projection slice.
 
 ### Proposed Python modules
 
@@ -319,4 +321,4 @@ PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is graph validation: enforce Core Capability cardinality, detect Capability hierarchy cycles as errors, and expose dependency cycles as warnings. Do not begin graph JSON projection in the same change.
+The next implementation task is deterministic graph JSON projection: nodes, edges, product/root identity, source locations, review summaries, and combined diagnostics suitable for a future UI. Validation is now in place; do not begin UI rendering in the same change.

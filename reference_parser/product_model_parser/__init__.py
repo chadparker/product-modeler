@@ -11,6 +11,7 @@ from .repository import (
     ClaimDeclaration,
     EntityDeclaration,
     FileKind,
+    GraphValidation,
     ReferenceDeclaration,
     ReferenceKind,
     ReferenceResolution,
@@ -20,6 +21,7 @@ from .repository import (
     RepositoryIndex,
     build_repository_index,
     load_repository,
+    validate_repository_graph,
 )
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     "DPlusError",
     "EntityDeclaration",
     "FileKind",
+    "GraphValidation",
     "Relationship",
     "ReferenceDeclaration",
     "ReferenceKind",
@@ -40,6 +43,7 @@ __all__ = [
     "RepositoryIndex",
     "build_repository_index",
     "load_repository",
+    "validate_repository_graph",
     "parse_file",
     "parse_text",
 ]

@@ -15,8 +15,11 @@ from product_model_parser.repository import (
     FileKind,
     ReferenceKind,
     ReferenceResolution,
+    _dependency_cycle_for_edge,
+    _functional_graph_cycles,
     build_repository_index,
     load_repository,
+    validate_repository_graph,
 )
 
 
@@ -727,7 +730,28 @@ class RepositoryIndexTests(unittest.TestCase):
     def test_validate_cli_allows_legacy_warnings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            self._write_legacy(root, "CAP-001.md", "CAP-001")
+            write(
+                root / "product.yaml",
+                """
+                formatVersion: "0.1"
+                id: PROD-001
+                type: product
+                title: Example
+                coreCapability: CAP-001
+                """,
+            )
+            write(
+                root / "CAP-001.md",
+                """
+                ---
+                id: CAP-001
+                type: capability
+                parent: null
+                ---
+
+                # CAP-001
+                """,
+            )
             stdout = io.StringIO()
             stderr = io.StringIO()
 
@@ -1242,6 +1266,271 @@ class RepositoryReferenceTests(unittest.TestCase):
         self.assertTrue(all(item.resolution == ReferenceResolution.RESOLVED for item in index.references))
         self.assertEqual(len(index.capability_parents), 7)
         self.assertFalse(index.has_errors, index.diagnostics)
+
+
+class RepositoryGraphValidationTests(unittest.TestCase):
+    def _write_manifest(self, root: Path, core: str | None = "CAP-001", path: str = "product.yaml") -> None:
+        core_line = f"coreCapability: {core}\n" if core is not None else ""
+        write(
+            root / path,
+            f"formatVersion: \"0.1\"\n"
+            f"id: PROD-{1 if path == 'product.yaml' else 2:03d}\n"
+            f"type: product\n"
+            f"title: Example\n"
+            f"{core_line}",
+        )
+
+    def _write_entity(
+        self,
+        root: Path,
+        path: str,
+        entity_id: str,
+        entity_type: str,
+        lines: tuple[str, ...] = (),
+    ) -> None:
+        metadata = "\n".join(lines)
+        extra = f"{metadata}\n" if metadata else ""
+        write(
+            root / path,
+            f"---\n"
+            f"id: {entity_id}\n"
+            f"type: {entity_type}\n"
+            f"{extra}"
+            f"---\n\n"
+            f"# {entity_id}\n",
+        )
+
+    def _validate(self, root: Path):
+        repository = load_repository(root)
+        index = build_repository_index(repository)
+        return repository, index, validate_repository_graph(repository, index)
+
+    def test_requires_exactly_one_product_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, _, missing = self._validate(root)
+            self.assertEqual([item.code for item in missing.diagnostics], ["product.manifest-count"])
+
+            self._write_manifest(root)
+            self._write_manifest(root, path="nested/product.yml")
+            _, _, multiple = self._validate(root)
+
+            diagnostics = [item for item in multiple.diagnostics if item.code == "product.manifest-count"]
+            self.assertEqual([item.path for item in diagnostics], ["nested/product.yml", "product.yaml"])
+            self.assertIsNone(multiple.product_manifest)
+
+    def test_requires_a_valid_core_capability_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root, core=None)
+
+            _, _, validation = self._validate(root)
+
+            self.assertEqual(validation.product_manifest, "product.yaml")
+            self.assertIsNone(validation.core_capability)
+            self.assertIn("product.core-capability-required", [item.code for item in validation.diagnostics])
+
+    def test_detects_capability_cycles_and_disconnected_branches(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_entity(root, "CAP-002.md", "CAP-002", "capability", ("parent: CAP-003",))
+            self._write_entity(root, "CAP-003.md", "CAP-003", "capability", ("parent: CAP-002",))
+            self._write_entity(root, "CAP-004.md", "CAP-004", "capability", ("parent: CAP-002",))
+            self._write_entity(root, "CAP-005.md", "CAP-005", "capability", ("parent: null",))
+
+            _, _, validation = self._validate(root)
+
+            self.assertEqual(validation.capability_cycles, (("CAP-002", "CAP-003", "CAP-002"),))
+            cycle_diagnostics = [item for item in validation.diagnostics if item.code == "capability.cycle"]
+            disconnected = [item for item in validation.diagnostics if item.code == "capability.disconnected"]
+            self.assertEqual({item.address for item in cycle_diagnostics}, {"CAP-002", "CAP-003"})
+            self.assertEqual({item.address for item in disconnected}, {"CAP-004", "CAP-005"})
+            self.assertTrue(validation.has_errors)
+
+    def test_detects_cycle_that_includes_core_capability(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", ("parent: CAP-002",))
+            self._write_entity(root, "CAP-002.md", "CAP-002", "capability", ("parent: CAP-001",))
+
+            _, index, validation = self._validate(root)
+
+            self.assertNotIn("CAP-001", index.capability_parents)
+            self.assertEqual(validation.capability_cycles, (("CAP-001", "CAP-002", "CAP-001"),))
+            self.assertEqual(
+                {item.address for item in validation.diagnostics if item.code == "capability.cycle"},
+                {"CAP-001", "CAP-002"},
+            )
+
+    def test_detects_self_parent_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_entity(root, "CAP-002.md", "CAP-002", "capability", ("parent: CAP-002",))
+
+            _, _, validation = self._validate(root)
+
+            self.assertEqual(validation.capability_cycles, (("CAP-002", "CAP-002"),))
+
+    def test_dependency_cycles_are_deterministic_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_entity(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-002"),
+            )
+            self._write_entity(
+                root,
+                "SUB-002.md",
+                "SUB-002",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-001"),
+            )
+
+            _, _, validation = self._validate(root)
+
+            self.assertEqual(validation.dependency_cycles, (("SUB-001", "SUB-002", "SUB-001"),))
+            diagnostics = [item for item in validation.diagnostics if item.code == "dependency.cycle"]
+            self.assertEqual(len(diagnostics), 2)
+            self.assertTrue(all(item.severity == "warning" for item in diagnostics))
+            self.assertFalse(validation.has_errors)
+
+    def test_dependency_scc_reports_each_distinct_cycle_and_matching_edge_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_entity(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-002"),
+            )
+            self._write_entity(
+                root,
+                "SUB-002.md",
+                "SUB-002",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-001", "    - SUB-003"),
+            )
+            self._write_entity(
+                root,
+                "SUB-003.md",
+                "SUB-003",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-002"),
+            )
+
+            _, _, validation = self._validate(root)
+
+            self.assertEqual(
+                validation.dependency_cycles,
+                (
+                    ("SUB-001", "SUB-002", "SUB-001"),
+                    ("SUB-002", "SUB-003", "SUB-002"),
+                ),
+            )
+            sub3_diagnostic = next(
+                item
+                for item in validation.diagnostics
+                if item.code == "dependency.cycle" and item.address == "SUB-003"
+            )
+            self.assertIn("SUB-003", sub3_diagnostic.message)
+
+    def test_deep_acyclic_graph_algorithms_do_not_recurse(self) -> None:
+        parents = {f"CAP-{index}": f"CAP-{index + 1}" for index in range(1500)}
+        adjacency = {
+            f"SUB-{index}": (f"SUB-{index + 1}",)
+            for index in range(1500)
+        }
+
+        self.assertEqual(_functional_graph_cycles(parents), ())
+        self.assertIsNone(_dependency_cycle_for_edge("SUB-0", "SUB-1", adjacency))
+
+    def test_detects_dependency_self_cycle_but_not_acyclic_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_entity(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-001", "    - SUB-002"),
+            )
+            self._write_entity(root, "SUB-002.md", "SUB-002", "subsystem")
+
+            _, _, validation = self._validate(root)
+
+            self.assertEqual(validation.dependency_cycles, (("SUB-001", "SUB-001"),))
+            diagnostics = [item for item in validation.diagnostics if item.code == "dependency.cycle"]
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].address, "SUB-001")
+
+    def test_validate_cli_includes_graph_validation_and_warning_exit_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_manifest(root)
+            self._write_entity(root, "CAP-001.md", "CAP-001", "capability", ("parent: null",))
+            self._write_entity(
+                root,
+                "SUB-001.md",
+                "SUB-001",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-002"),
+            )
+            self._write_entity(
+                root,
+                "SUB-002.md",
+                "SUB-002",
+                "subsystem",
+                ("relations:", "  requires:", "    - SUB-001"),
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = main(["validate", str(root)])
+
+            self.assertEqual(status, 0)
+            self.assertIn("1 dependency cycles", stdout.getvalue())
+            self.assertIn("dependency.cycle", stderr.getvalue())
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                json_status = main(["validate", str(root), "--json"])
+
+            self.assertEqual(json_status, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual(
+                payload["graphValidation"]["dependencyCycles"],
+                [["SUB-001", "SUB-002", "SUB-001"]],
+            )
+            self.assertFalse(payload["hasErrors"])
+
+    def test_current_dogfood_graph_is_valid_and_acyclic(self) -> None:
+        repository = load_repository(REPO_ROOT / "model")
+        index = build_repository_index(repository)
+        validation = validate_repository_graph(repository, index)
+
+        self.assertEqual(validation.product_manifest, "product.yaml")
+        self.assertEqual(validation.core_capability, "CAP-001")
+        self.assertEqual(validation.capability_cycles, ())
+        self.assertEqual(validation.dependency_cycles, ())
+        self.assertFalse(validation.has_errors, validation.diagnostics)
 
 
 if __name__ == "__main__":

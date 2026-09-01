@@ -36,4 +36,4 @@ PYTHONPATH=reference_parser python3 -m unittest discover -s reference_parser/tes
 
 ## Scope
 
-The parser validates individual D+ documents, discovers and classifies Product Model repositories, and builds deterministic entity, Claim, and cross-file reference indexes. Repository validation reports file/document errors, duplicate identities, missing or ambiguous targets, malformed references, and invalid Capability parents while preserving source locations. Cycle validation and graph projection are the next layers.
+The parser validates individual D+ documents, discovers and classifies Product Model repositories, and builds deterministic entity, Claim, and cross-file reference indexes. Repository validation reports file/document errors, duplicate identities, missing or ambiguous targets, malformed references, invalid Capability parents, hierarchy cycles, disconnected branches, and dependency-cycle warnings while preserving source locations. Deterministic graph projection is the next layer.
