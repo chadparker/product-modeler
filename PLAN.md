@@ -7,7 +7,7 @@ Updated: 2026-09-01
 Product Modeler is in discovery and format-prototyping. The repository contains:
 
 - a product brief, domain glossary, analysis method, and golden-path scenario;
-- a dogfood Product Model under `model/`;
+- a mixed-format dogfood Product Model under `model/`, including a representative eight-entity D+ vertical slice;
 - accepted architectural decisions under `docs/adr/`;
 - the accepted D+ Markdown-first Claim profile in `format/DPLUS.md`;
 - a Python D+ reference parser, repository indexer, validator and graph CLI, and 101 tests under `reference_parser/`;
@@ -67,9 +67,11 @@ Completed:
 - renderer-independent projection of unambiguous entities and every syntactically valid reference;
 - deterministic collision-free projection edge IDs and combined diagnostics;
 - `product-model-parse graph model/ [--json]` with error/warning exit semantics;
-- dogfood projection: product `PROD-001`, Core Capability `CAP-001`, 31 nodes, 79 edges, and 30 legacy warnings.
+- dogfood projection after representative migration: product `PROD-001`, Core Capability `CAP-001`, 31 nodes, 143 edges, 34 Claims, and 22 legacy warnings;
+- representative D+ vertical slice covering `CAP-001`, `CAP-020`, `CAP-030`, `SUB-020`, `SUB-030`, `SUB-040`, `JRN-001`, and `UI-001`;
+- stable local Claim and relationship IDs, inherited `SRC-001` provenance, confirmed Claim digests, and mixed proposed/provisional/questioned Interface review states.
 
-Next implementation task: migrate the representative dogfood vertical slice to D+ and evaluate the graph projection against mixed legacy/D+ content.
+Next implementation task: complete the remaining dogfood migration to D+, preserving graph semantics and applying lessons from the validated representative slice before UI work begins.
 
 ### Completed task specification: stable graph JSON projection
 
@@ -179,7 +181,7 @@ Add tests for:
 7. deterministic, JSON-safe node, edge, and diagnostic ordering;
 8. partial graph output and nonzero CLI exit when errors exist;
 9. warning-only graph output and zero CLI exit;
-10. dogfood output containing 31 nodes, 79 edges, product `PROD-001`, Core Capability `CAP-001`, and no errors;
+10. pre-migration dogfood output containing 31 nodes, 79 edges, product `PROD-001`, Core Capability `CAP-001`, and no errors;
 11. installation and `graph` execution in a clean virtual environment.
 
 All existing 101 tests must continue to pass.
@@ -193,7 +195,7 @@ Do not yet:
 - migrate the dogfood model to D+;
 - add editing, chat, or Mutation Transactions.
 
-After this slice, migrate the representative D+ dogfood vertical slice before building the read-only explorer UI.
+The representative D+ dogfood vertical slice described below is now complete. The remaining migration should continue before building the read-only explorer UI.
 
 ### Completed task specification: identity indexing
 
@@ -378,7 +380,7 @@ Use the migration to test:
 - cross-file reference resolution;
 - graph projection readability.
 
-Do not migrate every file until this slice validates cleanly and reads well without tooling.
+The representative slice now validates cleanly and reads well without tooling. The remaining 22 legacy entity files may now be migrated incrementally using the same Claim, relationship, provenance, review, and digest conventions.
 
 ## Acceptance criteria for the milestone
 
@@ -405,7 +407,7 @@ Do not migrate every file until this slice validates cleanly and reads well with
 
 ## Work after this milestone
 
-1. Complete dogfood migration.
+1. Complete the remaining dogfood migration.
 2. Build a read-only Capability tree and dependency viewer from graph JSON.
 3. Add entity and Claim inspection.
 4. Add file-backed edits and Mutation Transactions.
@@ -448,4 +450,4 @@ PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is the representative D+ dogfood migration described above. Use the stable graph projection to verify mixed-format nodes, edges, review summaries, provenance, and diagnostics. Do not begin rendering or UI work in the same change.
+The next implementation task is completing the remaining dogfood migration from 22 legacy entities to D+. Preserve IDs and graph semantics, use stable local Claim/relationship IDs, and keep each incremental batch valid. Do not begin rendering or UI work in the same change.

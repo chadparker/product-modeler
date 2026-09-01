@@ -39,3 +39,5 @@ PYTHONPATH=reference_parser python3 -m unittest discover -s reference_parser/tes
 ## Scope
 
 The parser validates individual D+ documents, discovers and classifies Product Model repositories, and builds deterministic entity, Claim, and cross-file reference indexes. Repository validation reports file/document errors, duplicate identities, missing or ambiguous targets, malformed references, invalid Capability parents, hierarchy cycles, disconnected branches, and dependency-cycle warnings while preserving source locations. The graph command emits a schema-versioned, renderer-independent projection with deterministic nodes, edges, diagnostics, and partial-invalid output.
+
+The current dogfood repository is intentionally mixed-format: eight representative entities are D+ documents and 22 remain legacy. It indexes 34 Claims and 143 resolved references without errors.

@@ -1,24 +1,105 @@
 ---
+formatVersion: "0.1"
 id: CAP-001
 type: capability
-title: Turn software-product evidence into an implementation-independent Product Model
-parent: null
 status: confirmed
-provenance:
-  - kind: confirmation
-    source: SRC-001
+defaults:
+  review:
+    state: provisional
+  provenance:
+    basedOn:
+      - SRC-001
 ---
 
 # Turn software-product evidence into an implementation-independent Product Model
 
-The user converts incomplete prose or an existing web prototype into a durable description of product purpose, capabilities, behavior, experience, constraints, evidence, and unresolved questions.
+## Context
 
-## Supported by
+This is the Core Capability through which the product delivers its fundamental value.
 
-- `CAP-010` — Ingest product evidence
-- `CAP-020` — Infer product intent and behavior
-- `CAP-030` — Resolve consequential uncertainty
-- `CAP-040` — Represent the Product Model as readable files
-- `CAP-050` — Explore and refine the Product Model
-- `CAP-060` — Preserve optional interface references
-- `CAP-070` — Hand the Product Model to external coding agents
+## Claims
+
+### C1
+
+The user can convert incomplete prose or an existing web prototype into a durable, implementation-independent Product Model.
+
+```product-claim
+review:
+  state: confirmed
+  contentDigest: sha256:539af68f8e9a7cb300b72eda56bfd458c54f12d6d9c15d8962e9730967358489
+```
+
+### C2
+
+The Product Model describes product purpose, capabilities, behavior, experience, constraints, evidence, and unresolved questions.
+
+```product-claim
+review:
+  state: confirmed
+  contentDigest: sha256:79a6893a60ca9b8de264efe58688e9f573166bc3d541cbdde44d60bebb8f3cc5
+```
+
+## Relationships
+
+### R1
+
+```product-relationship
+type: supportedBy
+target: CAP-010
+review:
+  state: confirmed
+```
+
+### R2
+
+```product-relationship
+type: supportedBy
+target: CAP-020
+review:
+  state: confirmed
+```
+
+### R3
+
+```product-relationship
+type: supportedBy
+target: CAP-030
+review:
+  state: confirmed
+```
+
+### R4
+
+```product-relationship
+type: supportedBy
+target: CAP-040
+review:
+  state: confirmed
+```
+
+### R5
+
+```product-relationship
+type: supportedBy
+target: CAP-050
+review:
+  state: confirmed
+```
+
+### R6
+
+```product-relationship
+type: supportedBy
+target: CAP-060
+review:
+  state: confirmed
+```
+
+### R7
+
+```product-relationship
+type: supportedBy
+target: CAP-070
+review:
+  state: confirmed
+```

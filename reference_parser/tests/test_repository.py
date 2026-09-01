@@ -515,9 +515,13 @@ class RepositoryDiscoveryTests(unittest.TestCase):
         repository = load_repository(REPO_ROOT / "model")
 
         self.assertEqual(repository.counts[FileKind.MANIFEST.value], 1)
-        self.assertEqual(repository.counts[FileKind.LEGACY.value], 30)
+        self.assertEqual(repository.counts[FileKind.LEGACY.value], 22)
+        self.assertEqual(repository.counts[FileKind.DPLUS.value], 8)
         self.assertEqual(repository.counts[FileKind.SUPPORT.value], 3)
-        self.assertEqual(repository.counts.get(FileKind.DPLUS.value, 0), 0)
+        self.assertEqual(
+            {item.entity_id for item in repository.files if item.kind == FileKind.DPLUS},
+            {"CAP-001", "CAP-020", "CAP-030", "SUB-020", "SUB-030", "SUB-040", "JRN-001", "UI-001"},
+        )
         self.assertFalse(repository.has_errors, repository.diagnostics)
 
 
@@ -904,7 +908,8 @@ class RepositoryIndexTests(unittest.TestCase):
 
         self.assertEqual(sum(len(items) for items in index.entity_declarations.values()), 31)
         self.assertEqual(len(index.entities_by_id), 31)
-        self.assertEqual(index.claim_declarations, {})
+        self.assertEqual(len(index.claim_declarations), 34)
+        self.assertEqual(len(index.claims_by_address), 34)
         self.assertFalse(index.has_errors, index.diagnostics)
 
 
@@ -1263,7 +1268,7 @@ class RepositoryReferenceTests(unittest.TestCase):
     def test_resolves_all_current_dogfood_references(self) -> None:
         index = build_repository_index(load_repository(REPO_ROOT / "model"))
 
-        self.assertEqual(len(index.references), 79)
+        self.assertEqual(len(index.references), 143)
         self.assertTrue(all(item.resolution == ReferenceResolution.RESOLVED for item in index.references))
         self.assertEqual(len(index.capability_parents), 7)
         self.assertFalse(index.has_errors, index.diagnostics)
@@ -1839,12 +1844,22 @@ class RepositoryGraphProjectionTests(unittest.TestCase):
         self.assertEqual(projection.product, "PROD-001")
         self.assertEqual(projection.core_capability, "CAP-001")
         self.assertEqual(len(projection.nodes), 31)
-        self.assertEqual(len(projection.edges), 79)
+        self.assertEqual(len(projection.edges), 143)
         self.assertTrue(projection.valid, projection.diagnostics)
         self.assertEqual(
             {item.code for item in projection.diagnostics},
             {"file.legacy"},
         )
+        ui_node = next(node for node in projection.nodes if node.entity_id == "UI-001")
+        self.assertEqual(
+            dict(ui_node.claim_review_summary),
+            {"proposed": 1, "provisional": 2, "questioned": 1},
+        )
+        self.assertEqual(sum(1 for node in projection.nodes if node.kind == FileKind.DPLUS), 8)
+        provenance_edges = [edge for edge in projection.edges if edge.kind == ReferenceKind.PROVENANCE]
+        self.assertEqual(len(provenance_edges), 58)
+        self.assertEqual({edge.target_id for edge in provenance_edges}, {"SRC-001"})
+        self.assertTrue(all(edge.resolution == ReferenceResolution.RESOLVED for edge in projection.edges))
         json.dumps(projection.to_dict())
 
 

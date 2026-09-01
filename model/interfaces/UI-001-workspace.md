@@ -1,30 +1,63 @@
 ---
+formatVersion: "0.1"
 id: UI-001
 type: interface
-title: Product modeling workspace
 status: inferred
-capabilities:
-  - CAP-030
-  - CAP-050
 preservation: adaptive
+defaults:
+  review:
+    state: provisional
+  provenance:
+    basedOn:
+      - SRC-001
 ---
 
 # Product modeling workspace
 
-The primary workspace places the capability map and clarification conversation side by side. Source material is available in a collapsible region, and selecting an entity opens an inspector showing definition, relationships, evidence, status, and unresolved questions.
+## Context
 
-## Major regions
+The exact workspace composition remains subject to interface validation; these Claims capture the current target direction.
 
-- Product Evidence
-- Capability map
-- Clarification conversation
-- Entity inspector
+## Claims
 
-## Important states
+### C1
 
-- Awaiting input
-- Analyzing
-- Provisional model ready
-- Clarification pending
-- Changes proposed
-- Model inconsistent
+The primary workspace places the Capability hierarchy and clarification conversation side by side.
+
+```product-claim
+review:
+  state: proposed
+```
+
+### C2
+
+Source material is available in a collapsible region, and selecting an entity opens an inspector showing its definition, relationships, evidence, status, and unresolved questions.
+
+### C3
+
+The workspace provides regions for Product Evidence, the Capability hierarchy, clarification conversation, and the entity inspector.
+
+### C4
+
+The workspace visibly distinguishes awaiting input, analyzing, provisional model ready, clarification pending, changes proposed, and model inconsistent states.
+
+```product-claim
+review:
+  state: questioned
+```
+
+## Relationships
+
+### R1
+
+```product-relationship
+type: capabilities
+target: CAP-030
+```
+
+### R2
+
+```product-relationship
+type: capabilities
+target: CAP-050
+```
