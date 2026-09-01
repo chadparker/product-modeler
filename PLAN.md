@@ -1,6 +1,6 @@
 # Implementation Plan
 
-Updated: 2026-08-31
+Updated: 2026-09-01
 
 ## Current state
 
@@ -64,6 +64,130 @@ Completed:
 - dogfood graph validation: one Core Capability, no hierarchy cycles, and no dependency cycles.
 
 Next implementation task: emit the stable graph JSON projection for future UI and agent consumers.
+
+### Next task specification: stable graph JSON projection
+
+Implement this bounded slice after validation and before any UI work.
+
+#### Projection API
+
+Add immutable projection records and a pure builder, with names along these lines:
+
+- `GraphNode`;
+- `GraphEdge`;
+- `GraphProjection`;
+- `build_graph_projection(repository, index, graph_validation)`.
+
+The projection is derived, disposable state. Source files remain authoritative. The builder must not read files again or mutate repository/index objects.
+
+#### Top-level contract
+
+Use an explicit projection schema version independent of D+ document versions:
+
+```json
+{
+  "schemaVersion": "0.1",
+  "product": "PROD-001",
+  "coreCapability": "CAP-001",
+  "valid": true,
+  "nodes": [],
+  "edges": [],
+  "diagnostics": []
+}
+```
+
+`product` and `coreCapability` may be `null` in a partial invalid projection. `valid` is false when any combined repository, index, or graph diagnostic is an error; warnings alone do not invalidate the projection.
+
+#### Nodes
+
+Create one node for each unambiguous entity declaration. Do not choose a winner for duplicate IDs. Each node should expose:
+
+- `id` and `type`;
+- canonical title, when available;
+- source `path` and ID `line`;
+- source file `kind` (`manifest`, `legacy`, `dplus`, `invalid`, or `unsupported`);
+- whether the declaration is usable as a resolved target;
+- entity status/review state when present;
+- Claim and relationship counts;
+- a deterministic Claim review-state summary for D+ documents;
+- Capability parent ID when a valid parent edge exists.
+
+Support files do not become graph nodes. Unique invalid or unsupported declarations may remain visible as unusable nodes so diagnostics and unavailable references have inspectable source context.
+
+#### Edges
+
+Project every syntactically valid indexed reference as an edge, including unresolved references. Each edge should expose:
+
+- a deterministic projection-local `id`;
+- semantic `kind` (`core-capability`, `parent`, `relationship`, `provenance`, or `source`);
+- relationship type when applicable, such as `requires` or `resolvedBy`;
+- source address and source entity ID;
+- target entity ID;
+- resolution (`resolved`, `missing`, `ambiguous`, or `unavailable`);
+- source `path` and `line`.
+
+Retain reference direction: for example, a Capability parent edge goes from the child Capability to its parent, and provenance goes from the entity/Claim/relationship to its evidence target. Malformed references without a syntactically valid target remain diagnostics rather than fabricated edges.
+
+D+ relationship edges should use the relationship address as the basis of their edge identity. Generated identities for legacy, parent, source, and provenance edges must be deterministic and collision-free within one projection; they are projection identifiers, not new authoritative model IDs.
+
+#### Diagnostics and partial output
+
+Combine and deterministically sort:
+
+- repository/classification diagnostics;
+- D+ document diagnostics;
+- identity and reference diagnostics;
+- graph-validation diagnostics.
+
+Always produce the best partial projection possible. Missing targets may be named by edges without corresponding nodes. Ambiguous entity IDs must remain omitted from the node map rather than being silently resolved. Invalid or unavailable content must remain visible through node/edge status and diagnostics.
+
+#### Ordering and compatibility
+
+- Sort nodes by entity ID.
+- Sort edges by kind, relationship type, source, target, path, line, and generated ID.
+- Sort diagnostics by path, line, code, and address.
+- Serialize only JSON-native values; do not leak `Path`, Enum, dataclass, or parser objects.
+- Keep the contract independent of Cytoscape, D3, React Flow, or any other rendering library.
+- Treat field removal or semantic reinterpretation as a future schema-version change.
+
+#### CLI
+
+Add:
+
+```bash
+product-model-parse graph model/ --json
+```
+
+`--json` emits the complete projection. A non-JSON invocation may print a concise node/edge/diagnostic summary, but must not become an alternate authoritative format. Exit nonzero when the combined projection contains errors; dependency-cycle warnings alone retain a zero exit status.
+
+#### Required tests
+
+Add tests for:
+
+1. mixed manifest, legacy, and D+ entities becoming nodes;
+2. node title, source, kind, usability, status, counts, review summary, and parent fields;
+3. core, parent, D+ relationship, legacy relationship, provenance, and source edges;
+4. missing, ambiguous, and unavailable references retained as edges with resolution status;
+5. duplicate entity IDs omitted rather than silently selected;
+6. malformed references remaining diagnostics without fabricated edges;
+7. deterministic, JSON-safe node, edge, and diagnostic ordering;
+8. partial graph output and nonzero CLI exit when errors exist;
+9. warning-only graph output and zero CLI exit;
+10. dogfood output containing 31 nodes, 79 edges, product `PROD-001`, Core Capability `CAP-001`, and no errors;
+11. installation and `graph` execution in a clean virtual environment.
+
+All existing 93 tests must continue to pass.
+
+#### Explicitly deferred
+
+Do not yet:
+
+- render a graph or Capability tree;
+- add UI-specific coordinates, colors, icons, or layout state;
+- migrate the dogfood model to D+;
+- add editing, chat, or Mutation Transactions.
+
+After this slice, migrate the representative D+ dogfood vertical slice before building the read-only explorer UI.
 
 ### Completed task specification: identity indexing
 
@@ -317,8 +441,9 @@ git log --oneline -8
 PYTHONPATH=reference_parser python3 -m unittest discover -s reference_parser/tests -q
 PYTHONPATH=reference_parser python3 -m product_model_parser inspect model/
 PYTHONPATH=reference_parser python3 -m product_model_parser validate model/
+PYTHONPATH=reference_parser python3 -m product_model_parser graph model/ --json
 PYTHONPATH=reference_parser python3 -m product_model_parser \
   format/experiments/claim-syntax/variant-d-plus.md
 ```
 
-The next implementation task is deterministic graph JSON projection: nodes, edges, product/root identity, source locations, review summaries, and combined diagnostics suitable for a future UI. Validation is now in place; do not begin UI rendering in the same change.
+The next implementation task is the bounded stable graph JSON projection specified above. Build projection records, deterministic node/edge output, partial-invalid behavior, combined diagnostics, and the `graph` CLI. Do not begin rendering, UI work, or dogfood migration in the same change.
