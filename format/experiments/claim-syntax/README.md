@@ -1,6 +1,6 @@
 # Claim Syntax Experiment
 
-This experiment represents the same Capability using three candidate syntaxes. Each variant must keep authoritative statement text in one place while supporting:
+This experiment began with three candidate syntaxes and later added refinements and a fourth family. Every variant represents the same Capability and must keep authoritative statement text in one place while supporting:
 
 - entity Provenance Defaults;
 - stable local Claim and relationship IDs;

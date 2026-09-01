@@ -17,8 +17,13 @@ from .repository import (
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Parse and validate Product Model D+ documents",
-        epilog="Use 'product-model-parse inspect MODEL_DIR' to classify a repository.",
+        description="Parse D+ documents or inspect, validate, and graph Product Model repositories",
+        epilog=(
+            "Repository commands: product-model-parse inspect MODEL_DIR; "
+            "product-model-parse validate MODEL_DIR; "
+            "product-model-parse graph MODEL_DIR. "
+            "Use 'product-model-parse parse FILE' for an explicit single-document invocation."
+        ),
     )
     parser.add_argument("files", nargs="+", type=Path)
     output_group = parser.add_mutually_exclusive_group()
@@ -74,7 +79,7 @@ def _inspect(argv: list[str]) -> int:
 def _validate(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="product-model-parse validate",
-        description="Validate identities in a Product Model repository",
+        description="Validate identities, references, and graph structure in a Product Model repository",
     )
     parser.add_argument("directory", type=Path)
     parser.add_argument("--json", action="store_true", help="print validation results as JSON")

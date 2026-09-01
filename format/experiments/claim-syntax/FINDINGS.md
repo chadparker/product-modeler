@@ -69,4 +69,4 @@ After reviewing the trade-off, the user selected D+. The corrected profile is do
 
 ## Current recommendation
 
-Use D+ for claim-bearing Product Model entities and migrate the dogfood model incrementally. Retain A+ and the reviews as evidence for the trade-off rather than as active alternatives.
+Use D+ for claim-bearing Product Model entities. The dogfood migration was completed after the representative slice validated the profile. Retain A+, the other variants, and the reviews as historical evidence for the trade-off rather than as active alternatives.

@@ -62,11 +62,6 @@ The evaluated Variant D sample contained several correctable inconsistencies:
 
 These defects reduced its agent and parser scores. They are not inherent to the Markdown-plus-fenced-metadata approach, but fixing them increases the amount of format grammar that must be documented and validated.
 
-## Decision boundary
+## Subsequent outcome
 
-The choice is not resolved by reviewer voting. It depends on which cost the product is willing to own:
-
-- Choose **Variant A+** if minimal parser complexity and strongest structural guarantees outweigh rendered readability.
-- Choose **Variant D** if the Product Model must primarily read and review like a document, and the project accepts a strict Markdown profile plus validator.
-
-The current product principle that the model should be readable by humans and coding agents without special tooling leans toward Variant D, but only after producing a corrected D+ sample and proving its parser remains small and deterministic.
+This review records the decision boundary as it stood on August 31, 2026. The project subsequently selected **D+**, produced the corrected profile in [`../../../../DPLUS.md`](../../../../DPLUS.md), implemented its reference parser, and completed the dogfood migration. The alternatives and raw reviews remain here as historical design evidence.

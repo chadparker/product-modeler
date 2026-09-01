@@ -27,4 +27,4 @@ Ordinary explanatory prose does not require Claim metadata. The UI supports enti
 - Agents and validators must understand inherited defaults.
 - The format needs a readable convention connecting Claim metadata and Markdown text.
 - Relationships may require metadata rather than remaining bare target IDs.
-- Existing version `0.1` dogfood entities continue using simplified entity-level fields until migrated to a concrete Claim syntax.
+- At the time of this decision, existing version `0.1` dogfood entities continued using simplified entity-level fields pending a concrete Claim syntax. That migration was completed after ADR 0006 adopted D+.

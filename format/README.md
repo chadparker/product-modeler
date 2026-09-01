@@ -2,6 +2,18 @@
 
 This directory documents the experimental file format dogfooded in [`../model/`](../model/).
 
+## Current authority
+
+[`DPLUS.md`](DPLUS.md) is the normative profile for claim-bearing Product Model entities. The files under [`experiments/claim-syntax/`](experiments/claim-syntax/) are historical design evidence, not active alternatives or current syntax documentation.
+
+The dogfood repository currently uses:
+
+- one YAML product manifest, `model/product.yaml`;
+- 30 D+ Markdown entity documents;
+- three intentional Markdown support files.
+
+No legacy entity documents remain in `model/`. The reference implementation in [`../reference_parser/`](../reference_parser/) defines repository classification, validation, and graph-projection behavior.
+
 ## Goals
 
 - readable by humans and coding agents;
@@ -14,27 +26,41 @@ This directory documents the experimental file format dogfooded in [`../model/`]
 
 ## Entity documents
 
-Most entities are Markdown files with YAML frontmatter:
+A claim-bearing entity is a D+ Markdown document with strict YAML frontmatter, one canonical H1 title, ordinary Markdown Claims, and structured relationship fences:
 
-```markdown
+````markdown
 ---
-id: CAP-002
+formatVersion: "0.1"
+id: CAP-030
 type: capability
-title: Analyze prose specifications
 parent: CAP-001
-relations:
-  requires:
-    - SUB-001
-status: confirmed
-provenance:
-  - kind: confirmation
-    source: SRC-001
+defaults:
+  review:
+    state: provisional
+  provenance:
+    basedOn:
+      - SRC-001
 ---
 
-# Analyze prose specifications
+# Resolve consequential uncertainty
 
-The system derives a provisional Product Model from prose or outline input.
+## Claims
+
+### C1
+
+Questions are prioritized by expected downstream impact.
+
+## Relationships
+
+### R1
+
+```product-relationship
+type: requires
+target: SUB-020
 ```
+````
+
+The globally stable Claim address is `CAP-030#C1`; the relationship address is `CAP-030#R1`. See [`DPLUS.md`](DPLUS.md) for the complete grammar, inheritance rules, and confirmation-digest algorithm.
 
 ## Initial entity types
 
@@ -51,121 +77,66 @@ The system derives a provisional Product Model from prose or outline input.
 - `decision`
 - `source`
 
+The product manifest is YAML. Claim-bearing instances of the other types use D+.
+
 ## Separate state dimensions
 
-Source reconstruction and target intent use separate fields rather than one overloaded status.
+Source reconstruction and target intent use separate concepts rather than one overloaded status.
 
-### Observation evidence certainty
+### Observation Evidence Certainty
 
 - `direct`
 - `inferred`
 - `contradicted`
 - `unknown`
 
-### Candidate target disposition
+### Candidate Target Disposition
 
 - `preserve`
 - `modify`
 - `exclude`
 - `undecided`
 
-### Intended-entity review state
+### Intended-entity and Claim Review State
 
 - `provisional`
 - `confirmed`
 - `questioned`
 - `proposed`
 
-A preselected candidate may remain provisional until the user acts. The format should retain whether a disposition came from an import default or an explicit user choice.
+A preselected Candidate Behavior may remain provisional until the user acts. The future import workflow must retain whether a disposition came from an import default or an explicit user choice.
+
+D+ currently preserves an optional entity-level `status` field while Claims and relationships use `review.state`. Entity status is not an implementation-progress indicator, and confirmed Product Model intent does not imply that the feature has been built.
 
 ## Import strategies
 
-Prototype import supports three initialization strategies:
+The intended prototype-import workflow supports three initialization strategies:
 
-- `prototype-as-starting-point` — candidate behaviors begin selected for preservation;
-- `empty-target` — candidate behaviors begin excluded from the target;
-- `review-individually` — candidate behaviors begin undecided.
+- `prototype-as-starting-point` — Candidate Behaviors begin selected for preservation;
+- `empty-target` — Candidate Behaviors begin excluded from the target;
+- `review-individually` — Candidate Behaviors begin undecided.
 
-The UI may expose these as Select All, Select None, and Review Individually. Raw Observations are grouped into product-level Candidate Behaviors before selection.
+These strategies are product design, not functionality in the current parser and graph implementation.
 
-## Temporary legacy status values
+## Provenance and confirmation
 
-The current dogfood files still use a simplified entity-level `status` field:
+Entities provide Provenance Defaults. Consequential Claims and relationships receive stable local IDs and override defaults only when their evidence or review metadata differs.
 
-- `observed`
-- `inferred`
-- `confirmed`
-- `proposed`
-- `contradicted`
-- `unknown`
-- `rejected`
+A statement should receive a Claim ID when it can be reviewed, contradicted, changed, sourced, implemented, or depended upon separately. Ordinary explanatory Context does not require Claim metadata.
 
-This field is transitional. Evidence Certainty, Target Disposition, and Review State must not be collapsed into one status in the durable schema.
+Confirmed Claims carry a digest of normalized normative Markdown. Editing the content without reconfirming it produces a stale-confirmation validation error. Relationships may be confirmed without a content digest because their normative content is structured metadata.
 
-## Inherited claim-level provenance
+## Relationships
 
-Entities provide Provenance Defaults. Consequential Claims receive stable local IDs and override defaults only when their evidence or review metadata differs.
+D+ accepts string relationship types and entity-ID targets. The current Product Model uses relationship names including `supportedBy`, `requires`, `resolvedBy`, `capabilities`, `appliesTo`, and `related`.
 
-```yaml
-id: CAP-030
-type: capability
-title: Search collected sources
-
-defaults:
-  review: provisional
-  basedOn:
-    - OBS-020
-
-claims:
-  - id: C1
-    statement: Users can search source titles.
-
-  - id: C2
-    statement: Users can search annotation text.
-    review: confirmed
-    basedOn:
-      - SRC-003
-```
-
-The globally stable address for the second Claim is `CAP-030#C2`. Consequential relationships may similarly use local IDs such as `R1`, addressed as `CAP-030#R1`.
-
-A statement should receive a Claim ID when it can be reviewed, contradicted, changed, sourced, implemented, or depended upon separately. Ordinary explanatory prose does not require Claim metadata.
-
-The concrete Claim syntax is the accepted D+ Markdown-first profile documented in [`DPLUS.md`](DPLUS.md). Earlier candidate syntaxes and independent evaluation findings remain in [`experiments/claim-syntax/`](experiments/claim-syntax/) as design evidence.
+Capability primary hierarchy is authoritative through the `parent` frontmatter field. Other relationships may express additional semantics but do not replace the parent index. The validator checks target syntax, existence, ambiguity, availability, and selected target-type constraints; it does not yet enforce a closed vocabulary of relationship types.
 
 ## Mutation transactions
 
-Every AI-generated model change is expressed as an atomic, validated Mutation Transaction. A transaction identifies:
+Mutation Transactions, modes, staging, and Undo are accepted product design described in the Product Model and ADRs. They are not implemented by the current read-only parser, validator, or graph CLI.
 
-- the triggering chat message, analysis event, or user action;
-- the active Mutation Mode;
-- its rationale;
-- structured operations;
-- affected entity IDs;
-- before-and-after values;
-- whether it was applied, staged, rejected, or undone.
-
-Projects support:
-
-- `fast` — immediately apply all valid AI-generated transactions;
-- `review-everything` — stage all AI-generated transactions;
-- `balanced` — immediately apply provisional and explicit structured user changes, but stage changes to confirmed or foundational intent.
-
-Balanced is the default. Protected categories are deterministic and visible. Applied transactions support atomic Undo; failed validation writes nothing.
-
-The durable file representation and retention policy for transaction history is not yet defined.
-
-## Core relationships
-
-- `supports`
-- `requires`
-- `appears-in`
-- `participates-in`
-- `transitions-to`
-- `constrained-by`
-- `evidenced-by`
-- `contradicts`
-- `alternative-to`
+The future design requires every AI-generated model change to be atomic and validated, with Balanced as the default Mutation Mode. The durable representation and retention policy for transaction history remains unresolved.
 
 ## Rules
 
@@ -177,7 +148,7 @@ The durable file representation and retention policy for transaction history is 
 6. Selecting a Candidate changes target intent; it does not change the certainty of its underlying Observations.
 7. Source evidence does not become a Constraint without confirmation.
 8. Filenames are descriptive conveniences.
-9. Relative links should be used when a human-readable link is helpful; IDs remain authoritative for relationships.
+9. Relative links may aid human reading; IDs remain authoritative for relationships.
 10. Derived indexes must be safely rebuildable from model files.
 11. Entity Provenance Defaults are inherited by Claims unless explicitly overridden.
 12. Consequential Claims and relationships use stable local IDs addressable through their containing entity.
@@ -188,10 +159,11 @@ A model may embed or reference established formats where appropriate, including 
 
 ## Known unresolved issues
 
-- exact representation of candidate-to-target modifications;
-- durable mutation-history representation and retention;
+- exact representation of Candidate Behavior modifications;
+- durable Mutation Transaction history and retention;
 - deletion and rejection history;
 - schema migration;
-- relationship metadata;
+- whether relationship types should use a closed or extensible vocabulary;
+- richer relationship-level review and provenance conventions;
 - source-location stability across repository changes;
 - model slicing for coding-agent context windows.

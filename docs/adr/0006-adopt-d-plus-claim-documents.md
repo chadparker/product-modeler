@@ -36,5 +36,5 @@ Maintain a small executable reference parser and validator with conformance test
 - Humans and agents can write multiline Claims, lists, links, and examples naturally.
 - Claim confirmation remains tied to the exact content reviewed.
 - Bulk confirmation must write a digest to each confirmed Claim rather than only changing an entity default.
-- Existing dogfood files require incremental migration to D+.
+- At acceptance, the existing dogfood files required incremental migration to D+; that migration is now complete.
 - Cross-file reference existence remains a repository-level validation concern.
